@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import numpy as np
@@ -139,6 +139,46 @@ def downsample(values: np.ndarray, max_points: int) -> tuple[np.ndarray, np.ndar
         selected.extend(sorted(set(local)))
     indices = np.asarray(sorted(set(selected)), dtype=int)
     return indices, values[indices]
+
+
+def dataset_path_parts(dataset: dict[str, Any]) -> tuple[str, ...]:
+    """Return normalized relative-path parts without changing displayed folder names."""
+    relative_path = str(dataset.get("relative_path", "")).replace("\\", "/")
+    return tuple(PurePosixPath(relative_path).parts)
+
+
+def filter_datasets_by_folder(
+    datasets: list[dict[str, Any]], folder_parts: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    """Keep datasets located in the selected folder or one of its descendants."""
+    if not folder_parts:
+        return list(datasets)
+    return [
+        item for item in datasets if dataset_path_parts(item)[: len(folder_parts)] == folder_parts
+    ]
+
+
+def folder_choices(
+    datasets: list[dict[str, Any]],
+    folder_parts: tuple[str, ...],
+    required_channel_counts: set[int] | None = None,
+) -> list[str]:
+    """List immediate child folders whose descendants satisfy the channel requirements."""
+    scoped = filter_datasets_by_folder(datasets, folder_parts)
+    depth = len(folder_parts)
+    children = sorted(
+        {parts[depth] for item in scoped if len(parts := dataset_path_parts(item)) > depth + 1},
+        key=lambda value: value.strip().casefold(),
+    )
+    if not required_channel_counts:
+        return children
+    eligible = []
+    for child in children:
+        child_items = filter_datasets_by_folder(datasets, (*folder_parts, child))
+        counts = {int(item["metadata"].get("channels_count", 0)) for item in child_items}
+        if required_channel_counts.issubset(counts):
+            eligible.append(child)
+    return eligible
 
 
 def dataset_counts() -> dict[str, int]:

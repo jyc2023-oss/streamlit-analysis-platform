@@ -18,11 +18,19 @@ from src.analysis import (
     run_analysis,
     run_paired_analysis,
 )
+from src.analysis.selection import apply_cycle_click, clicked_cycle_from_points
 from src.auth.ui import render_sidebar, require_user
 from src.components.plots import render_analysis_output, render_paired_output
 from src.config import get_settings
 from src.db import init_db
-from src.services.datasets import downsample, list_datasets, load_channel, scan_datasets
+from src.services.datasets import (
+    downsample,
+    filter_datasets_by_folder,
+    folder_choices,
+    list_datasets,
+    load_channel,
+    scan_datasets,
+)
 from src.services.jobs import (
     create_job,
     mark_failed,
@@ -34,6 +42,7 @@ from src.services.jobs import (
 CHANNEL_LABELS_8 = ["5m", "10m", "20m", "40m", "80m", "120m", "160m", "背景支路"]
 CHANNEL_LABELS_2 = ["电弧发生处", "2m主干"]
 ALL_ANALYSIS_TYPES = {**ANALYSIS_TYPES, **PAIRED_ANALYSIS_TYPES}
+USE_CURRENT_FOLDER = "__USE_CURRENT_FOLDER__"
 
 
 @st.cache_data(show_spinner=False, ttl=600)
@@ -154,6 +163,36 @@ def choose_dataset(title: str, datasets: list[dict[str, Any]], key: str) -> dict
     return item
 
 
+def choose_dataset_folder(
+    datasets: list[dict[str, Any]], key: str, max_levels: int = 12
+) -> tuple[str, ...]:
+    channel_counts = {int(item["metadata"].get("channels_count", 0)) for item in datasets}
+    required_counts = {8, 2} if {8, 2}.issubset(channel_counts) else set()
+    selected_parts: tuple[str, ...] = ()
+    for level in range(max_levels):
+        children = folder_choices(datasets, selected_parts, required_counts)
+        if not children:
+            break
+        options = [*children]
+        if selected_parts:
+            options.append(USE_CURRENT_FOLDER)
+        selected = st.selectbox(
+            f"第 {level + 1} 级文件夹",
+            options,
+            format_func=lambda value: (
+                "📂 在当前文件夹选择文件" if value == USE_CURRENT_FOLDER else f"📁 {value.strip()}"
+            ),
+            key=f"{key}_level_{level}",
+        )
+        if selected == USE_CURRENT_FOLDER:
+            break
+        selected_parts = (*selected_parts, selected)
+    if selected_parts:
+        breadcrumb = " / ".join(part.strip() for part in selected_parts)
+        st.caption(f"当前位置：{breadcrumb}")
+    return selected_parts
+
+
 def channel_length(dataset: dict[str, Any], channel: str) -> int:
     shape = dataset["metadata"].get("shapes", {}).get(channel)
     if shape:
@@ -197,6 +236,28 @@ def build_cycle_selection_figure(
             col=1,
         )
         figure.update_yaxes(title_text=trace["label"], gridcolor="#e2e8f0", row=row, col=1)
+    starts = np.asarray(context["starts"], dtype=np.int64)
+    center_times = (starts + context["cycle_points"] / 2) / sample_rate
+    reference_trace = context["traces"][0]
+    center_values = np.interp(center_times, reference_trace["time"], reference_trace["values"])
+    cycle_numbers = np.arange(1, len(starts) + 1, dtype=np.int64)
+    figure.add_scattergl(
+        x=center_times,
+        y=center_values,
+        mode="markers",
+        marker={
+            "size": 11,
+            "color": "rgba(15,23,42,.16)",
+            "line": {"color": "rgba(15,23,42,.35)", "width": 1},
+        },
+        customdata=np.column_stack((starts, cycle_numbers)),
+        name="可点击周波中心",
+        hovertemplate=(
+            "周波 %{customdata[1]}<br>中心时间 %{x:.6f} s<br>点击加入当前类别<extra></extra>"
+        ),
+        row=1,
+        col=1,
+    )
     duration = context["cycle_points"] / sample_rate
     for starts, color in ((noarc_starts, "#2563eb"), (arc_starts, "#dc2626")):
         for start in starts:
@@ -213,7 +274,7 @@ def build_cycle_selection_figure(
                 )
     figure.update_xaxes(title_text="时间 (s)", gridcolor="#e2e8f0", row=4, col=1)
     figure.update_layout(
-        title="周波选择预览（蓝色：无弧，红色：有弧）",
+        title="周波手动选择（点击波形或圆点；蓝色：无弧，红色：有弧）",
         height=700,
         margin={"l": 105, "r": 20, "t": 65, "b": 45},
         paper_bgcolor="#ffffff",
@@ -316,14 +377,17 @@ with left_panel:
 with right_panel:
     with st.container(border=True):
         st.markdown("#### 分析文件")
+        st.caption("请按目录层级逐级进入，系统会在 114/116 分开前停在共同文件夹。")
+        selected_folder = choose_dataset_folder(datasets, "workbench_folder")
+        scoped_datasets = filter_datasets_by_folder(datasets, selected_folder)
         eight_channel_files = [
-            item for item in datasets if item["metadata"].get("channels_count") == 8
+            item for item in scoped_datasets if item["metadata"].get("channels_count") == 8
         ]
         two_channel_files = [
-            item for item in datasets if item["metadata"].get("channels_count") == 2
+            item for item in scoped_datasets if item["metadata"].get("channels_count") == 2
         ]
         other_files = [
-            item for item in datasets if item["metadata"].get("channels_count") not in {2, 8}
+            item for item in scoped_datasets if item["metadata"].get("channels_count") not in {2, 8}
         ]
         selected_8 = choose_dataset("8 通道文件", eight_channel_files, "workbench_file_8")
         selected_2 = choose_dataset("2 通道文件", two_channel_files, "workbench_file_2")
@@ -416,24 +480,101 @@ if is_paired:
                 f"{(start + context['cycle_points']) / sample_rate_8:.6f} s"
             )
 
+        selection_scope = f"{analysis_type}_{selected_8['id']}_{selected_2['id']}_{cycle_count}"
+        noarc_key = f"noarc_{selection_scope}"
+        arc_key = f"arc_{selection_scope}"
+        last_event_key = f"cycle_click_last_{selection_scope}"
+        notice_key = f"cycle_click_notice_{selection_scope}"
+        if noarc_key not in st.session_state:
+            st.session_state[noarc_key] = []
+        if arc_key not in st.session_state:
+            st.session_state[arc_key] = []
+        st.session_state[noarc_key] = [
+            item for item in st.session_state[noarc_key] if item in starts
+        ][:cycle_count]
+        st.session_state[arc_key] = [item for item in st.session_state[arc_key] if item in starts][
+            :cycle_count
+        ]
+
+        click_columns = st.columns([2.2, 1, 1])
+        click_target = click_columns[0].radio(
+            "点击波形时归类为",
+            ["无弧", "有弧", "取消选择"],
+            horizontal=True,
+            key=f"cycle_click_target_{selection_scope}",
+        )
+        if click_columns[1].button(
+            "清空当前类别", key=f"clear_cycle_target_{selection_scope}", width="stretch"
+        ):
+            target_key = noarc_key if click_target == "无弧" else arc_key
+            if click_target == "取消选择":
+                st.session_state[noarc_key] = []
+                st.session_state[arc_key] = []
+            else:
+                st.session_state[target_key] = []
+            st.session_state[last_event_key] = None
+            st.rerun()
+        if click_columns[2].button(
+            "全部清空", key=f"clear_all_cycles_{selection_scope}", width="stretch"
+        ):
+            st.session_state[noarc_key] = []
+            st.session_state[arc_key] = []
+            st.session_state[last_event_key] = None
+            st.rerun()
+
+        cycle_event = st.plotly_chart(
+            build_cycle_selection_figure(
+                context,
+                sample_rate_8,
+                st.session_state[noarc_key],
+                st.session_state[arc_key],
+            ),
+            key=f"cycle_click_chart_{selection_scope}",
+            on_select="rerun",
+            selection_mode="points",
+            width="stretch",
+        )
+        selected_points = cycle_event.get("selection", {}).get("points", [])
+        clicked_start, event_signature = clicked_cycle_from_points(
+            selected_points,
+            starts,
+            context["cycle_points"],
+            sample_rate_8,
+        )
+        if not selected_points:
+            st.session_state[last_event_key] = None
+        if event_signature is not None and st.session_state.get(last_event_key) != event_signature:
+            st.session_state[last_event_key] = event_signature
+            updated_noarc, updated_arc, notice = apply_cycle_click(
+                st.session_state[noarc_key],
+                st.session_state[arc_key],
+                clicked_start,
+                click_target,
+                cycle_count,
+            )
+            st.session_state[noarc_key] = updated_noarc
+            st.session_state[arc_key] = updated_arc
+            if notice:
+                st.session_state[notice_key] = notice
+            st.rerun()
+        if notice := st.session_state.pop(notice_key, None):
+            st.warning(notice)
+
+        st.markdown("**精确列表选择（保留原有方式）**")
         select_columns = st.columns(2)
         noarc_starts = select_columns[0].multiselect(
             f"无弧周波（请选择 {cycle_count} 个）",
             starts,
             max_selections=cycle_count,
             format_func=format_cycle,
-            key=f"noarc_{analysis_type}_{selected_8['id']}_{selected_2['id']}_{cycle_count}",
+            key=noarc_key,
         )
         arc_starts = select_columns[1].multiselect(
             f"有弧周波（请选择 {cycle_count} 个）",
             starts,
             max_selections=cycle_count,
             format_func=format_cycle,
-            key=f"arc_{analysis_type}_{selected_8['id']}_{selected_2['id']}_{cycle_count}",
-        )
-        st.plotly_chart(
-            build_cycle_selection_figure(context, sample_rate_8, noarc_starts, arc_starts),
-            width="stretch",
+            key=arc_key,
         )
         st.caption(
             f"已选择：无弧 {len(noarc_starts)}/{cycle_count}，"
