@@ -4,11 +4,13 @@ set -Eeuo pipefail
 ARCHIVE_PATH="${1:-$HOME/streamlit-analysis-platform.tar}"
 APP_ROOT="${APP_ROOT:-$HOME/apps/streamlit-analysis-platform}"
 STATE_ROOT="${STATE_ROOT:-$HOME/.local/share/streamlit-analysis-platform}"
-DATA_ROOT="${DATA_ROOT:-/data/usershare/test-manager/datas}"
+DATA_ROOT="${DATA_ROOT:-/srv/acquisition/raw}"
 SERVICE_PORT="${SERVICE_PORT:-8501}"
+SERVICE_HOST="${SERVICE_HOST:-127.0.0.1}"
 MICROMAMBA="${MICROMAMBA:-$HOME/.local/bin/micromamba}"
 MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-$HOME/.local/share/mamba}"
 ENV_NAME="streamlit-analysis"
+PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 
 if [[ ! -r "$ARCHIVE_PATH" ]]; then
   echo "Deployment archive is not readable: $ARCHIVE_PATH" >&2
@@ -42,6 +44,7 @@ if [[ ! -x "$MICROMAMBA" ]]; then
 fi
 
 export MAMBA_ROOT_PREFIX
+export PIP_INDEX_URL
 if ! "$MICROMAMBA" env list | awk '{print $1}' | grep -Fxq "$ENV_NAME"; then
   "$MICROMAMBA" create -y -n "$ENV_NAME" -c conda-forge python=3.12 pip
 fi
@@ -74,7 +77,7 @@ WorkingDirectory=$APP_ROOT
 EnvironmentFile=$APP_ROOT/.env
 Environment=MPLBACKEND=Agg
 Environment=MAMBA_ROOT_PREFIX=$MAMBA_ROOT_PREFIX
-ExecStart=$MICROMAMBA run -n $ENV_NAME python -m streamlit run app.py --server.address=0.0.0.0 --server.port=$SERVICE_PORT --server.headless=true --browser.gatherUsageStats=false
+ExecStart=$MICROMAMBA run -n $ENV_NAME python -m streamlit run app.py --server.address=$SERVICE_HOST --server.port=$SERVICE_PORT --server.headless=true --browser.gatherUsageStats=false
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
@@ -95,7 +98,6 @@ for _ in {1..30}; do
   sleep 1
 done
 curl -fsS "http://127.0.0.1:$SERVICE_PORT/_stcore/health"
-printf '\nAPP_ROOT=%s\nSTATE_ROOT=%s\nDATA_ROOT=%s\nPORT=%s\n' \
-  "$APP_ROOT" "$STATE_ROOT" "$DATA_ROOT" "$SERVICE_PORT"
+printf '\nAPP_ROOT=%s\nSTATE_ROOT=%s\nDATA_ROOT=%s\nHOST=%s\nPORT=%s\n' \
+  "$APP_ROOT" "$STATE_ROOT" "$DATA_ROOT" "$SERVICE_HOST" "$SERVICE_PORT"
 systemctl --user --no-pager --full status streamlit-analysis.service | head -n 20
-

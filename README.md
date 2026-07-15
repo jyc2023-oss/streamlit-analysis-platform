@@ -63,6 +63,15 @@ docker compose up -d --build
 
 Compose 将原始目录只读挂载到 `/data/raw`。正式上线前应配置内网/VPN、防火墙以及 Nginx HTTPS 证书，不要直接向公网暴露 8501 端口。
 
+服务器没有 Docker 或管理员权限时，可以使用用户级部署脚本：
+
+```bash
+DATA_ROOT=/srv/acquisition/raw SERVICE_HOST=127.0.0.1 SERVICE_PORT=8501 \
+  bash deploy/server/install-user.sh ~/streamlit-analysis-platform.tar
+```
+
+脚本会安装隔离的 Python 3.12 环境，创建用户级 systemd 服务，并将运行状态保存在代码目录之外。
+
 ## BIN 格式
 
 当前解析器兼容现有脚本使用的格式：
