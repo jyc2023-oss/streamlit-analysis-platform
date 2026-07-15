@@ -246,8 +246,16 @@ def build_cycle_selection_figure(
                     x0=left,
                     x1=left + duration,
                     fillcolor=color,
-                    opacity=0.16,
+                    opacity=0.28,
                     line_width=0,
+                    row=row,
+                    col=1,
+                )
+                figure.add_vline(
+                    x=left + duration / 2,
+                    line_color=color,
+                    line_width=2,
+                    line_dash="dash",
                     row=row,
                     col=1,
                 )
