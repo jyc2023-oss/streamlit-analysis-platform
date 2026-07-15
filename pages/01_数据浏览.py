@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.auth.ui import render_sidebar, require_user
+from src.auth.ui import require_user
 from src.config import get_settings
 from src.db import init_db
 from src.services.datasets import (
@@ -15,10 +15,8 @@ from src.services.datasets import (
     scan_datasets,
 )
 
-st.set_page_config(page_title="数据浏览", page_icon="🗂️", layout="wide")
 init_db()
 user = require_user()
-render_sidebar(user)
 settings = get_settings()
 
 st.title("数据浏览")

@@ -6,16 +6,14 @@ import pandas as pd
 import streamlit as st
 
 from src.auth.service import create_user, list_users, set_user_active
-from src.auth.ui import render_sidebar, require_user
+from src.auth.ui import require_user
 from src.config import get_settings
 from src.db import init_db, transaction
 from src.services.datasets import dataset_counts, scan_datasets
 from src.services.jobs import job_counts
 
-st.set_page_config(page_title="系统管理", page_icon="⚙️", layout="wide")
 init_db()
 user = require_user("admin")
-render_sidebar(user)
 settings = get_settings()
 
 st.title("系统管理")

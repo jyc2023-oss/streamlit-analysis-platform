@@ -19,7 +19,7 @@ from src.analysis import (
     run_paired_analysis,
 )
 from src.analysis.selection import normalize_cycle_selection
-from src.auth.ui import render_sidebar, require_user
+from src.auth.ui import require_user
 from src.components.plotly_click import render_cycle_picker
 from src.components.plots import render_analysis_output, render_paired_output
 from src.config import get_settings
@@ -268,10 +268,8 @@ def render_file_info(
             )
 
 
-st.set_page_config(page_title="分析工作台", page_icon="📈", layout="wide")
 init_db()
 user = require_user()
-render_sidebar(user)
 settings = get_settings()
 
 st.markdown(

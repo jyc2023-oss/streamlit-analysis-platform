@@ -74,11 +74,33 @@ def require_user(role: str | None = None) -> dict:
     return user
 
 
-def render_sidebar(user: dict) -> None:
-    with st.sidebar:
-        st.markdown(f"**{user['username']}**")
-        st.caption("管理员" if user["role"] == "admin" else "分析人员")
-        if st.button("退出登录", width="stretch"):
+def render_account_bar(user: dict) -> None:
+    """Render compact account controls below the horizontal navigation."""
+    st.html(
+        """
+        <style>
+        .account-bar-label {
+            color: #64748b;
+            font-size: 0.85rem;
+            line-height: 2.4rem;
+            text-align: right;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.account-bar-label) {
+            align-items: center;
+            min-height: 2.5rem;
+        }
+        </style>
+        """
+    )
+    _spacer, identity, logout = st.columns([8, 1.2, 0.9], vertical_alignment="center")
+    with identity:
+        role = "管理员" if user["role"] == "admin" else "分析人员"
+        st.markdown(
+            f'<div class="account-bar-label">{user["username"]} · {role}</div>',
+            unsafe_allow_html=True,
+        )
+    with logout:
+        if st.button("退出登录", width="stretch", key="top_logout"):
             audit("auth.logout", user_id=user["id"])
             st.session_state.clear()
             st.switch_page("app.py")

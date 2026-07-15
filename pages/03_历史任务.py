@@ -3,14 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.auth.ui import render_sidebar, require_user
+from src.auth.ui import require_user
 from src.db import init_db
 from src.services.jobs import get_artifacts, list_jobs, read_artifact
 
-st.set_page_config(page_title="历史任务", page_icon="🕘", layout="wide")
 init_db()
 user = require_user()
-render_sidebar(user)
 
 st.title("历史任务")
 is_admin = user["role"] == "admin"
