@@ -36,17 +36,17 @@ action_columns = st.columns(3)
 with action_columns[0]:
     st.markdown("#### 1. 浏览数据")
     st.write("索引服务器目录中的 MAT/BIN 文件并预览通道波形。")
-    if st.button("打开数据浏览", use_container_width=True):
+    if st.button("打开数据浏览", width="stretch"):
         st.switch_page("pages/01_数据浏览.py")
 with action_columns[1]:
     st.markdown("#### 2. 执行分析")
     st.write("配置采样区间和算法参数，生成可下载的分析结果。")
-    if st.button("打开分析中心", use_container_width=True):
+    if st.button("打开分析中心", width="stretch"):
         st.switch_page("pages/02_分析中心.py")
 with action_columns[2]:
     st.markdown("#### 3. 查看历史")
     st.write("查看任务参数、运行状态和已生成的结果文件。")
-    if st.button("打开历史任务", use_container_width=True):
+    if st.button("打开历史任务", width="stretch"):
         st.switch_page("pages/03_历史任务.py")
 
 st.subheader("最近任务")
@@ -66,6 +66,6 @@ else:
             }
             for item in recent
         ],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )

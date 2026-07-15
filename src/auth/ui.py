@@ -50,7 +50,7 @@ def render_login() -> None:
     with st.form("login"):
         username = st.text_input("用户名")
         password = st.text_input("密码", type="password")
-        submitted = st.form_submit_button("登录", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("登录", type="primary", width="stretch")
     if submitted:
         user = authenticate(username, password)
         if user is None:
@@ -78,7 +78,7 @@ def render_sidebar(user: dict) -> None:
     with st.sidebar:
         st.markdown(f"**{user['username']}**")
         st.caption("管理员" if user["role"] == "admin" else "分析人员")
-        if st.button("退出登录", use_container_width=True):
+        if st.button("退出登录", width="stretch"):
             audit("auth.logout", user_id=user["id"])
             st.session_state.clear()
             st.switch_page("app.py")

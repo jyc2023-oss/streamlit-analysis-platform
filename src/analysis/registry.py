@@ -91,6 +91,52 @@ def fft_spectrum(values: np.ndarray, sample_rate: float, params: dict[str, Any])
     )
 
 
+def power_spectrum(
+    values: np.ndarray, sample_rate: float, params: dict[str, Any]
+) -> AnalysisOutput:
+    values = _finite(values)
+    segment_length = int(params.get("segment_length", min(4096, values.size)))
+    segment_length = max(64, min(segment_length, values.size))
+    frequencies, density = signal.welch(
+        values,
+        fs=sample_rate,
+        window="hann",
+        nperseg=segment_length,
+        detrend="constant",
+        scaling="density",
+    )
+    min_frequency = max(0.0, float(params.get("min_frequency", 0.0)))
+    max_frequency = min(sample_rate / 2, float(params.get("max_frequency", sample_rate / 2)))
+    if min_frequency >= max_frequency:
+        raise ValueError("功率谱最小频率必须小于最大频率。")
+    mask = (frequencies >= min_frequency) & (frequencies <= max_frequency)
+    visible_frequencies = frequencies[mask]
+    visible_density = density[mask]
+    if visible_density.size == 0:
+        raise ValueError("所选频率范围没有频点。")
+    peak_index = int(np.argmax(visible_density))
+    table = pd.DataFrame(
+        {
+            "指标": ["分段长度", "峰值频率 (Hz)", "峰值功率谱密度", "频点数"],
+            "数值": [
+                segment_length,
+                visible_frequencies[peak_index],
+                visible_density[peak_index],
+                visible_density.size,
+            ],
+        }
+    )
+    return AnalysisOutput(
+        "Welch 功率谱密度",
+        visible_frequencies,
+        visible_density,
+        "频率 (Hz)",
+        "功率谱密度",
+        "line",
+        table,
+    )
+
+
 def bandpass_filter(
     values: np.ndarray, sample_rate: float, params: dict[str, Any]
 ) -> AnalysisOutput:
@@ -116,6 +162,31 @@ def bandpass_filter(
         }
     )
     return AnalysisOutput("带通滤波结果", x, filtered, "时间 (s)", "幅值", "line", table)
+
+
+def signal_envelope(
+    values: np.ndarray, sample_rate: float, params: dict[str, Any]
+) -> AnalysisOutput:
+    values = _finite(values)
+    envelope = np.abs(signal.hilbert(values))
+    smooth_ms = float(params.get("smooth_ms", 1.0))
+    window = max(1, int(round(sample_rate * smooth_ms / 1000)))
+    if window > 1:
+        kernel = np.ones(window, dtype=np.float64) / window
+        envelope = np.convolve(envelope, kernel, mode="same")
+    x = np.arange(values.size) / sample_rate
+    table = pd.DataFrame(
+        {
+            "指标": ["平滑窗口 (ms)", "包络峰值", "包络均值", "包络均方根"],
+            "数值": [
+                smooth_ms,
+                envelope.max(),
+                envelope.mean(),
+                np.sqrt(np.mean(envelope**2)),
+            ],
+        }
+    )
+    return AnalysisOutput("信号包络", x, envelope, "时间 (s)", "包络幅值", "line", table)
 
 
 def wavelet_energy(
@@ -156,10 +227,42 @@ def wavelet_energy(
 
 
 ANALYSIS_TYPES: dict[str, dict[str, Any]] = {
-    "waveform": {"label": "原始波形", "runner": waveform},
-    "fft": {"label": "FFT 幅值谱", "runner": fft_spectrum},
-    "bandpass": {"label": "带通滤波", "runner": bandpass_filter},
-    "wavelet_energy": {"label": "小波包能量", "runner": wavelet_energy},
+    "waveform": {
+        "label": "原始波形",
+        "icon": "〰️",
+        "description": "查看所选通道在时间域内的幅值变化。",
+        "runner": waveform,
+    },
+    "fft": {
+        "label": "FFT 幅值谱",
+        "icon": "📶",
+        "description": "分析信号中各频率分量的幅值。",
+        "runner": fft_spectrum,
+    },
+    "power_spectrum": {
+        "label": "Welch 功率谱",
+        "icon": "📊",
+        "description": "通过分段平均获得更稳定的功率谱密度。",
+        "runner": power_spectrum,
+    },
+    "bandpass": {
+        "label": "带通滤波",
+        "icon": "🎚️",
+        "description": "保留指定频率范围并观察滤波后波形。",
+        "runner": bandpass_filter,
+    },
+    "envelope": {
+        "label": "信号包络",
+        "icon": "⌁",
+        "description": "提取幅值包络，突出脉冲和调制变化。",
+        "runner": signal_envelope,
+    },
+    "wavelet_energy": {
+        "label": "小波包能量",
+        "icon": "🧩",
+        "description": "查看不同小波频带的相对能量。",
+        "runner": wavelet_energy,
+    },
 }
 
 

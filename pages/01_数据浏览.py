@@ -31,7 +31,7 @@ with st.expander("数据源状态", expanded=False):
 toolbar = st.columns([3, 1, 1])
 search = toolbar[0].text_input("搜索文件名或相对路径", placeholder="输入关键字")
 status = toolbar[1].selectbox("状态", ["全部", "ready", "pending", "error"])
-if toolbar[2].button("刷新数据索引", type="primary", use_container_width=True):
+if toolbar[2].button("刷新数据索引", type="primary", width="stretch"):
     with st.spinner("正在扫描数据目录并读取元信息……"):
         result = scan_datasets(user["id"])
     st.success(
@@ -58,7 +58,7 @@ table = pd.DataFrame(
         for item in datasets
     ]
 )
-st.dataframe(table, use_container_width=True, hide_index=True)
+st.dataframe(table, width="stretch", hide_index=True)
 
 ready = [item for item in datasets if item["status"] == "ready"]
 if not ready:
@@ -120,5 +120,5 @@ if preview:
         height=520,
         hovermode="x unified",
     )
-    st.plotly_chart(figure, use_container_width=True)
+    st.plotly_chart(figure, width="stretch")
     st.caption(f"原区间 {len(values):,} 点，预览显示 {len(sampled):,} 点。原始数据未发送到浏览器。")

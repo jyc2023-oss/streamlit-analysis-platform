@@ -53,7 +53,7 @@ st.dataframe(
             for item in users
         ]
     ),
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
 )
 
@@ -92,4 +92,4 @@ with transaction() as connection:
            LEFT JOIN users ON users.id = logs.user_id
            ORDER BY logs.id DESC LIMIT 100"""
     ).fetchall()
-st.dataframe(pd.DataFrame([dict(row) for row in logs]), use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame([dict(row) for row in logs]), width="stretch", hide_index=True)

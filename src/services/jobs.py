@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +69,7 @@ def mark_failed(job_id: str, error: Exception) -> None:
         )
 
 
-def _write_figure(output: AnalysisOutput, path: Path, file_format: str) -> None:
+def render_figure_bytes(output: AnalysisOutput, file_format: str = "png") -> bytes:
     figure, axis = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
     if output.kind == "bar":
         width = float(output.x[1] - output.x[0]) * 0.85 if output.x.size > 1 else 0.8
@@ -79,8 +80,14 @@ def _write_figure(output: AnalysisOutput, path: Path, file_format: str) -> None:
     axis.set_xlabel(output.x_label)
     axis.set_ylabel(output.y_label)
     axis.grid(True, alpha=0.25)
-    figure.savefig(path, format=file_format, dpi=180)
+    buffer = BytesIO()
+    figure.savefig(buffer, format=file_format, dpi=180)
     plt.close(figure)
+    return buffer.getvalue()
+
+
+def _write_figure(output: AnalysisOutput, path: Path, file_format: str) -> None:
+    path.write_bytes(render_figure_bytes(output, file_format))
 
 
 def save_job_result(job_id: str, user_id: int, output: AnalysisOutput) -> list[dict[str, Any]]:

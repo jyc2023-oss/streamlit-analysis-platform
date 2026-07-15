@@ -1,6 +1,13 @@
 import numpy as np
 
-from src.analysis.registry import bandpass_filter, fft_spectrum, waveform, wavelet_energy
+from src.analysis.registry import (
+    bandpass_filter,
+    fft_spectrum,
+    power_spectrum,
+    signal_envelope,
+    waveform,
+    wavelet_energy,
+)
 
 
 def test_waveform_metrics() -> None:
@@ -37,3 +44,19 @@ def test_wavelet_energy_ratios_sum_to_one() -> None:
     output = wavelet_energy(values, 4096.0, {"wavelet": "db3", "level": 4})
     assert output.kind == "bar"
     assert np.isclose(output.y.sum(), 1.0)
+
+
+def test_power_spectrum_finds_tone() -> None:
+    sample_rate = 4096.0
+    time = np.arange(8192) / sample_rate
+    values = np.sin(2 * np.pi * 300 * time)
+    output = power_spectrum(values, sample_rate, {"segment_length": 4096})
+    assert abs(output.x[int(np.argmax(output.y))] - 300) <= 1
+
+
+def test_signal_envelope_is_positive() -> None:
+    time = np.arange(4096) / 4096
+    values = (1 + 0.5 * np.sin(2 * np.pi * 5 * time)) * np.sin(2 * np.pi * 300 * time)
+    output = signal_envelope(values, 4096, {"smooth_ms": 1.0})
+    assert np.all(output.y >= 0)
+    assert output.y.max() > output.y.min()

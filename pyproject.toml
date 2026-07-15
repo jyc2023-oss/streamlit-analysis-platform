@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "面向服务器采集数据的内部 Streamlit 分析平台"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-  "streamlit>=1.46,<2",
+  "streamlit>=1.59,<2",
   "numpy>=2.0,<3",
   "pandas>=2.2,<3",
   "scipy>=1.14,<2",
