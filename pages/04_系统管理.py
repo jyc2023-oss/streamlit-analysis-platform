@@ -11,12 +11,16 @@ from src.config import get_settings
 from src.db import init_db, transaction
 from src.services.datasets import dataset_counts, scan_datasets
 from src.services.jobs import job_counts
+from src.ui import render_page_intro
 
 init_db()
 user = require_user("admin")
 settings = get_settings()
 
-st.title("系统管理")
+render_page_intro(
+    "系统管理",
+    "查看平台运行状态，维护数据索引与用户权限，并审阅最近的系统操作记录。",
+)
 
 st.subheader("运行状态")
 usage = shutil.disk_usage(settings.app_data_dir)
@@ -30,7 +34,7 @@ metrics[3].metric("磁盘可用", f"{usage.free / 1024**3:.1f} GB")
 
 st.subheader("数据目录")
 for root in settings.data_roots:
-    st.write(f"{'✅' if root.exists() else '⚠️'} `{root}`")
+    st.write(f"{'可用' if root.exists() else '不可用'} · `{root}`")
 if st.button("立即刷新全部数据索引"):
     with st.spinner("扫描中……"):
         result = scan_datasets(user["id"])

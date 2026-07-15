@@ -27,8 +27,8 @@ _CYCLE_PICKER_HTML = r"""
 
 _CYCLE_PICKER_CSS = r"""
 .cycle-picker {
-  color: #0f172a;
-  font-family: "Source Sans 3", "Microsoft YaHei", sans-serif;
+  color: #173f3b;
+  font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   padding: 0.2rem 0 0.55rem;
 }
 .cycle-picker__toolbar {
@@ -39,16 +39,27 @@ _CYCLE_PICKER_CSS = r"""
 }
 .cycle-picker__label { font-weight: 650; margin-right: 0.1rem; }
 .cycle-picker button {
-  background: #fff;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.5rem;
-  color: #334155;
+  background: #fbfdfc;
+  border: 1px solid #c3d2cf;
+  border-radius: 0.58rem;
+  color: #405c59;
   cursor: pointer;
   font-size: 0.9rem;
+  font-weight: 600;
   line-height: 1.2;
   padding: 0.48rem 0.78rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 120ms ease;
 }
-.cycle-picker button:hover { border-color: #64748b; }
+.cycle-picker button:hover {
+  border-color: #0f766e;
+  box-shadow: 0 0.45rem 1rem rgba(15, 118, 110, 0.11);
+  transform: translateY(-1px);
+}
+.cycle-picker button:active { transform: translateY(1px) scale(0.99); }
+.cycle-picker button:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.2);
+  outline-offset: 2px;
+}
 .cycle-picker button[data-active="true"][data-mode="noarc"] {
   background: #2563eb; border-color: #2563eb; color: #fff;
 }
@@ -56,10 +67,10 @@ _CYCLE_PICKER_CSS = r"""
   background: #dc2626; border-color: #dc2626; color: #fff;
 }
 .cycle-picker button[data-active="true"][data-mode="remove"] {
-  background: #475569; border-color: #475569; color: #fff;
+  background: #405c59; border-color: #405c59; color: #fff;
 }
 .cycle-picker__status {
-  color: #334155;
+  color: #405c59;
   font-size: 0.9rem;
   font-weight: 650;
   margin: 0 0.35rem;
@@ -72,13 +83,13 @@ _CYCLE_PICKER_CSS = r"""
   margin-left: auto;
 }
 .cycle-picker button.cycle-picker__apply:disabled {
-  background: #cbd5e1;
-  border-color: #cbd5e1;
-  color: #64748b;
+  background: #d8e3e1;
+  border-color: #d8e3e1;
+  color: #718582;
   cursor: not-allowed;
 }
 .cycle-picker__message {
-  color: #64748b;
+  color: #607474;
   font-size: 0.86rem;
   min-height: 1.25rem;
   padding-top: 0.45rem;

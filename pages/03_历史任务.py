@@ -6,11 +6,15 @@ import streamlit as st
 from src.auth.ui import require_user
 from src.db import init_db
 from src.services.jobs import get_artifacts, list_jobs, read_artifact
+from src.ui import render_page_intro
 
 init_db()
 user = require_user()
 
-st.title("历史任务")
+render_page_intro(
+    "历史任务",
+    "追溯分析参数、运行状态和结果文件。任务记录按最新执行时间排列。",
+)
 is_admin = user["role"] == "admin"
 jobs = list_jobs(user["id"], is_admin, limit=200)
 if not jobs:

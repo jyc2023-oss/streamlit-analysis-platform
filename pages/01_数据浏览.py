@@ -14,17 +14,20 @@ from src.services.datasets import (
     load_channel,
     scan_datasets,
 )
+from src.ui import render_page_intro
 
 init_db()
 user = require_user()
 settings = get_settings()
 
-st.title("数据浏览")
-st.caption("平台只扫描配置的数据根目录，原始文件以只读方式使用。")
+render_page_intro(
+    "数据浏览",
+    "检索服务器采集文件，检查元数据，并在不复制原始数据的前提下快速预览指定通道。",
+)
 
 with st.expander("数据源状态", expanded=False):
     for root in settings.data_roots:
-        st.write(f"{'✅' if root.exists() else '⚠️'} `{root}`")
+        st.write(f"{'可用' if root.exists() else '不可用'} · `{root}`")
 
 toolbar = st.columns([3, 1, 1])
 search = toolbar[0].text_input("搜索文件名或相对路径", placeholder="输入关键字")
@@ -109,7 +112,7 @@ if preview:
     absolute_indices = indices + start
     x = absolute_indices / sample_rate if sample_rate else absolute_indices
     figure = go.Figure(
-        go.Scattergl(x=x, y=sampled, mode="lines", line={"width": 1, "color": "#2563eb"})
+        go.Scattergl(x=x, y=sampled, mode="lines", line={"width": 1.2, "color": "#0f766e"})
     )
     figure.update_layout(
         title=f"{dataset['name']} · {channel}",
@@ -117,6 +120,11 @@ if preview:
         yaxis_title="幅值",
         height=520,
         hovermode="x unified",
+        paper_bgcolor="#fbfdfc",
+        plot_bgcolor="#fbfdfc",
+        font={"color": "#173f3b"},
+        xaxis={"gridcolor": "#dce7e5", "zerolinecolor": "#bdcfcc"},
+        yaxis={"gridcolor": "#dce7e5", "zerolinecolor": "#bdcfcc"},
     )
     st.plotly_chart(figure, width="stretch")
     st.caption(f"原区间 {len(values):,} 点，预览显示 {len(sampled):,} 点。原始数据未发送到浏览器。")

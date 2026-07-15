@@ -8,23 +8,23 @@ from plotly.subplots import make_subplots
 from src.analysis import AnalysisOutput, PairedAnalysisOutput
 
 WHITE_LAYOUT = {
-    "paper_bgcolor": "#ffffff",
-    "plot_bgcolor": "#ffffff",
-    "font": {"color": "#0f172a"},
+    "paper_bgcolor": "#fbfdfc",
+    "plot_bgcolor": "#fbfdfc",
+    "font": {"color": "#173f3b"},
 }
 
 
 def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000) -> go.Figure:
     figure = go.Figure()
     if output.kind == "bar":
-        figure.add_bar(x=output.x, y=output.y, marker_color="#2563eb")
+        figure.add_bar(x=output.x, y=output.y, marker_color="#0f766e")
     else:
         step = max(1, len(output.x) // max_line_points)
         figure.add_scattergl(
             x=output.x[::step],
             y=output.y[::step],
             mode="lines",
-            line={"color": "#2563eb", "width": 1.4},
+            line={"color": "#0f766e", "width": 1.4},
         )
     figure.update_layout(
         title=output.title,
@@ -34,8 +34,8 @@ def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000)
         margin={"l": 55, "r": 25, "t": 65, "b": 50},
         hovermode="x unified",
         **WHITE_LAYOUT,
-        xaxis={"gridcolor": "#e2e8f0", "zerolinecolor": "#cbd5e1"},
-        yaxis={"gridcolor": "#e2e8f0", "zerolinecolor": "#cbd5e1"},
+        xaxis={"gridcolor": "#dce7e5", "zerolinecolor": "#bdcfcc"},
+        yaxis={"gridcolor": "#dce7e5", "zerolinecolor": "#bdcfcc"},
     )
     return figure
 
@@ -67,8 +67,8 @@ def build_paired_figure(output: PairedAnalysisOutput, max_points: int = 12_000) 
                     row=row + 1,
                     col=column + 1,
                 )
-        figure.update_xaxes(title_text="频率 (Hz)", gridcolor="#e2e8f0")
-        figure.update_yaxes(title_text=output.y_label, gridcolor="#e2e8f0")
+        figure.update_xaxes(title_text="频率 (Hz)", gridcolor="#dce7e5")
+        figure.update_yaxes(title_text=output.y_label, gridcolor="#dce7e5")
         if output.kind == "paired_normalized_fft":
             maximum = max(10.0, float(output.panels[0].x[-1]))
             figure.update_xaxes(type="log", range=[1.0, float(np.log10(maximum))])
@@ -98,8 +98,8 @@ def build_paired_figure(output: PairedAnalysisOutput, max_points: int = 12_000) 
             )
         figure.add_hline(y=0, line_dash="dot", line_color="#64748b")
         figure.add_hline(y=3, line_dash="dash", line_color="#dc2626")
-        figure.update_xaxes(title_text=output.x_label, gridcolor="#e2e8f0")
-        figure.update_yaxes(title_text=output.y_label, gridcolor="#e2e8f0")
+        figure.update_xaxes(title_text=output.x_label, gridcolor="#dce7e5")
+        figure.update_yaxes(title_text=output.y_label, gridcolor="#dce7e5")
         height = 680
     else:
         figure = make_subplots(rows=1, cols=2, subplot_titles=["有弧", "无弧"], shared_yaxes=True)
@@ -127,8 +127,8 @@ def build_paired_figure(output: PairedAnalysisOutput, max_points: int = 12_000) 
                 row=1,
                 col=2,
             )
-        figure.update_xaxes(title_text=output.x_label, gridcolor="#e2e8f0")
-        figure.update_yaxes(title_text=output.y_label, gridcolor="#e2e8f0")
+        figure.update_xaxes(title_text=output.x_label, gridcolor="#dce7e5")
+        figure.update_yaxes(title_text=output.y_label, gridcolor="#dce7e5")
         height = 720
 
     figure.update_layout(

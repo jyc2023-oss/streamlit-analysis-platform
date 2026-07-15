@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from datetime import UTC, datetime, timedelta
 
 import streamlit as st
@@ -92,11 +93,16 @@ def render_account_bar(user: dict) -> None:
         </style>
         """
     )
-    _spacer, identity, logout = st.columns([8, 1.2, 0.9], vertical_alignment="center")
+    brand, identity, logout = st.columns([8, 1.2, 0.9], vertical_alignment="center")
+    with brand:
+        st.markdown(
+            '<div class="app-wordmark">服务器数据分析平台<span>实时服务器数据</span></div>',
+            unsafe_allow_html=True,
+        )
     with identity:
         role = "管理员" if user["role"] == "admin" else "分析人员"
         st.markdown(
-            f'<div class="account-bar-label">{user["username"]} · {role}</div>',
+            f'<div class="account-bar-label">{html.escape(user["username"])} · {role}</div>',
             unsafe_allow_html=True,
         )
     with logout:

@@ -39,6 +39,7 @@ from src.services.jobs import (
     render_figure_bytes,
     save_job_result,
 )
+from src.ui import render_page_intro
 
 CHANNEL_LABELS_8 = ["5m", "10m", "20m", "40m", "80m", "120m", "160m", "背景支路"]
 CHANNEL_LABELS_2 = ["电弧发生处", "2m主干"]
@@ -233,15 +234,15 @@ def build_cycle_selection_figure(
             row=row,
             col=1,
         )
-        figure.update_yaxes(title_text=trace["label"], gridcolor="#e2e8f0", row=row, col=1)
-    figure.update_xaxes(title_text="时间 (s)", gridcolor="#e2e8f0", row=4, col=1)
+        figure.update_yaxes(title_text=trace["label"], gridcolor="#dce7e5", row=row, col=1)
+    figure.update_xaxes(title_text="时间 (s)", gridcolor="#dce7e5", row=4, col=1)
     figure.update_layout(
         title="周波手动选择（可先缩放，再连续点选；蓝色：无弧，红色：有弧）",
         height=700,
         margin={"l": 105, "r": 20, "t": 65, "b": 45},
-        paper_bgcolor="#ffffff",
-        plot_bgcolor="#ffffff",
-        font={"color": "#0f172a"},
+        paper_bgcolor="#fbfdfc",
+        plot_bgcolor="#fbfdfc",
+        font={"color": "#173f3b"},
         hovermode="x unified",
         legend={"orientation": "h", "y": 1.02},
     )
@@ -275,19 +276,13 @@ settings = get_settings()
 st.markdown(
     """
     <style>
-      .block-container {max-width: 1960px; padding-top: 1.1rem; padding-bottom: 2rem;}
-      div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-color: #dbe4f0; border-radius: 14px; box-shadow: 0 8px 24px rgba(15,23,42,.05);
-      }
-      div[data-testid="stMetric"] {
-        background: #f8fafc; border: 1px solid #e2e8f0; padding: .55rem .75rem; border-radius: 10px;
-      }
       .screen-label {
-        color:#64748b; font-size:.82rem; letter-spacing:.08em; text-transform:uppercase;
+        color:#173f3b; font-size:1.02rem; font-weight:700; letter-spacing:-.01em;
+        margin-bottom:.65rem;
       }
-      .channel-caption {color:#64748b; font-size:.88rem; margin-top:-.4rem;}
+      .channel-caption {color:#607474; font-size:.88rem; margin-top:-.4rem;}
       .full-file-name, .file-info-name {
-        color:#475569; font-size:.78rem; line-height:1.35; overflow-wrap:anywhere;
+        color:#607474; font-size:.78rem; line-height:1.45; overflow-wrap:anywhere;
         margin:-.25rem 0 .65rem;
       }
       [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
@@ -305,8 +300,10 @@ st.markdown(
 
 title_column, action_column = st.columns([5, 4], vertical_alignment="center")
 with title_column:
-    st.title("数据分析工作台")
-    st.caption("切换分析方法、文件或通道后，中央大屏会自动刷新。")
+    render_page_intro(
+        "数据分析工作台",
+        "选择算法、数据文件与通道，中央画布会同步更新，并可保存图像、数据和完整分析记录。",
+    )
 action_placeholder = action_column.empty()
 
 datasets = list_datasets(status="ready")
@@ -322,9 +319,7 @@ with left_panel:
         analysis_type = st.radio(
             "选择分析方法",
             list(ALL_ANALYSIS_TYPES),
-            format_func=lambda key: (
-                f"{ALL_ANALYSIS_TYPES[key]['icon']}  {ALL_ANALYSIS_TYPES[key]['label']}"
-            ),
+            format_func=lambda key: ALL_ANALYSIS_TYPES[key]["label"],
             label_visibility="collapsed",
             key="workbench_analysis_type",
         )
@@ -393,7 +388,7 @@ if is_paired:
     cycle_counts = definition["cycle_counts"]
     with screen_placeholder.container(border=True):
         st.markdown(
-            '<div class="screen-label">CYCLE SELECTION & ANALYSIS</div>',
+            '<div class="screen-label">周波选择与分析</div>',
             unsafe_allow_html=True,
         )
         control_columns = st.columns(3)
@@ -694,7 +689,7 @@ else:
         st.stop()
 
     with screen_placeholder.container(border=True):
-        st.markdown('<div class="screen-label">ANALYSIS DISPLAY</div>', unsafe_allow_html=True)
+        st.markdown('<div class="screen-label">分析结果</div>', unsafe_allow_html=True)
         render_analysis_output(output, show_table=False)
         metric_columns = st.columns(4)
         metric_columns[0].metric("当前通道", selected_channel_label.split(" · ")[-1])
