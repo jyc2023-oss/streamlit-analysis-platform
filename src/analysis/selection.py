@@ -3,6 +3,32 @@ from __future__ import annotations
 from typing import Any
 
 
+def normalize_cycle_selection(
+    noarc: Any,
+    arc: Any,
+    valid_starts: list[int],
+    maximum: int,
+) -> tuple[list[int], list[int]] | None:
+    """Validate a cycle-picker submission before copying it into session state."""
+    if not isinstance(noarc, list) or not isinstance(arc, list):
+        return None
+    try:
+        normalized_noarc = list(dict.fromkeys(int(item) for item in noarc))
+        normalized_arc = list(dict.fromkeys(int(item) for item in arc))
+    except (TypeError, ValueError):
+        return None
+    valid = set(valid_starts)
+    if (
+        len(normalized_noarc) != maximum
+        or len(normalized_arc) != maximum
+        or not set(normalized_noarc).issubset(valid)
+        or not set(normalized_arc).issubset(valid)
+        or set(normalized_noarc) & set(normalized_arc)
+    ):
+        return None
+    return normalized_noarc, normalized_arc
+
+
 def clicked_cycle_from_points(
     points: list[dict[str, Any]],
     starts: list[int],

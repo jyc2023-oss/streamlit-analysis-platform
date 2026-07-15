@@ -18,9 +18,9 @@ from src.analysis import (
     run_analysis,
     run_paired_analysis,
 )
-from src.analysis.selection import apply_cycle_click, clicked_cycle_from_points
+from src.analysis.selection import normalize_cycle_selection
 from src.auth.ui import render_sidebar, require_user
-from src.components.plotly_click import capture_plotly_click
+from src.components.plotly_click import render_cycle_picker
 from src.components.plots import render_analysis_output, render_paired_output
 from src.config import get_settings
 from src.db import init_db
@@ -220,9 +220,6 @@ def add_channel_options(
 
 def build_cycle_selection_figure(
     context: dict[str, Any],
-    sample_rate: float,
-    noarc_starts: list[int],
-    arc_starts: list[int],
 ) -> go.Figure:
     figure = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.055)
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd"]
@@ -237,31 +234,9 @@ def build_cycle_selection_figure(
             col=1,
         )
         figure.update_yaxes(title_text=trace["label"], gridcolor="#e2e8f0", row=row, col=1)
-    duration = context["cycle_points"] / sample_rate
-    for starts, color in ((noarc_starts, "#2563eb"), (arc_starts, "#dc2626")):
-        for start in starts:
-            left = start / sample_rate
-            for row in range(1, 5):
-                figure.add_vrect(
-                    x0=left,
-                    x1=left + duration,
-                    fillcolor=color,
-                    opacity=0.28,
-                    line_width=0,
-                    row=row,
-                    col=1,
-                )
-                figure.add_vline(
-                    x=left + duration / 2,
-                    line_color=color,
-                    line_width=2,
-                    line_dash="dash",
-                    row=row,
-                    col=1,
-                )
     figure.update_xaxes(title_text="时间 (s)", gridcolor="#e2e8f0", row=4, col=1)
     figure.update_layout(
-        title="周波手动选择（直接点击任意波形；蓝色：无弧，红色：有弧）",
+        title="周波手动选择（可先缩放，再连续点选；蓝色：无弧，红色：有弧）",
         height=700,
         margin={"l": 105, "r": 20, "t": 65, "b": 45},
         paper_bgcolor="#ffffff",
@@ -470,8 +445,7 @@ if is_paired:
         selection_scope = f"{analysis_type}_{selected_8['id']}_{selected_2['id']}_{cycle_count}"
         noarc_key = f"noarc_{selection_scope}"
         arc_key = f"arc_{selection_scope}"
-        last_event_key = f"cycle_click_last_{selection_scope}"
-        notice_key = f"cycle_click_notice_{selection_scope}"
+        picker_key = f"cycle_picker_{selection_scope}"
         if noarc_key not in st.session_state:
             st.session_state[noarc_key] = []
         if arc_key not in st.session_state:
@@ -483,75 +457,41 @@ if is_paired:
             :cycle_count
         ]
 
-        click_columns = st.columns([2.2, 1, 1])
-        click_target = click_columns[0].radio(
-            "点击波形时归类为",
-            ["无弧", "有弧", "取消选择"],
-            horizontal=True,
-            key=f"cycle_click_target_{selection_scope}",
-        )
-        if click_columns[1].button(
-            "清空当前类别", key=f"clear_cycle_target_{selection_scope}", width="stretch"
-        ):
-            target_key = noarc_key if click_target == "无弧" else arc_key
-            if click_target == "取消选择":
-                st.session_state[noarc_key] = []
-                st.session_state[arc_key] = []
-            else:
-                st.session_state[target_key] = []
-            st.session_state[last_event_key] = None
-            st.rerun()
-        if click_columns[2].button(
-            "全部清空", key=f"clear_all_cycles_{selection_scope}", width="stretch"
-        ):
-            st.session_state[noarc_key] = []
-            st.session_state[arc_key] = []
-            st.session_state[last_event_key] = None
-            st.rerun()
+        def accept_cycle_picker() -> None:
+            component_state = st.session_state.get(picker_key, {})
+            payload = component_state.get("applied") if component_state else None
+            if not isinstance(payload, dict):
+                return
+            normalized = normalize_cycle_selection(
+                payload.get("noarc"),
+                payload.get("arc"),
+                starts,
+                cycle_count,
+            )
+            if normalized is None:
+                return
+            st.session_state[noarc_key], st.session_state[arc_key] = normalized
 
         chart_key = f"cycle_click_chart_{selection_scope}"
         st.plotly_chart(
-            build_cycle_selection_figure(
-                context,
-                sample_rate_8,
-                st.session_state[noarc_key],
-                st.session_state[arc_key],
-            ),
+            build_cycle_selection_figure(context),
             key=chart_key,
             width="stretch",
+            config={"scrollZoom": True, "displaylogo": False},
         )
-        click_result = capture_plotly_click(
+        render_cycle_picker(
             chart_key,
-            key=f"cycle_click_bridge_{selection_scope}",
-        )
-        click_payload = click_result.clicked
-        selected_points = [click_payload] if isinstance(click_payload, dict) else []
-        clicked_start, event_signature = clicked_cycle_from_points(
-            selected_points,
             starts,
             context["cycle_points"],
             sample_rate_8,
+            st.session_state[noarc_key],
+            st.session_state[arc_key],
+            cycle_count,
+            key=picker_key,
+            on_applied_change=accept_cycle_picker,
         )
-        if event_signature is not None:
-            event_signature = (click_payload.get("nonce"), clicked_start)
-        if event_signature is not None and st.session_state.get(last_event_key) != event_signature:
-            st.session_state[last_event_key] = event_signature
-            updated_noarc, updated_arc, notice = apply_cycle_click(
-                st.session_state[noarc_key],
-                st.session_state[arc_key],
-                clicked_start,
-                click_target,
-                cycle_count,
-            )
-            st.session_state[noarc_key] = updated_noarc
-            st.session_state[arc_key] = updated_arc
-            if notice:
-                st.session_state[notice_key] = notice
-            st.rerun()
-        if notice := st.session_state.pop(notice_key, None):
-            st.warning(notice)
 
-        st.markdown("**精确列表选择（保留原有方式）**")
+        st.markdown("**精确列表选择（备用）**")
         select_columns = st.columns(2)
         noarc_starts = select_columns[0].multiselect(
             f"无弧周波（请选择 {cycle_count} 个）",
@@ -569,7 +509,7 @@ if is_paired:
         )
         st.caption(
             f"已选择：无弧 {len(noarc_starts)}/{cycle_count}，"
-            f"有弧 {len(arc_starts)}/{cycle_count}。选择完成后自动生成分析图。"
+            f"有弧 {len(arc_starts)}/{cycle_count}。图上连续点选后需点击“确认并分析”。"
         )
         if set(noarc_starts) & set(arc_starts):
             st.error("同一个周波不能同时作为无弧和有弧，请重新选择。")
