@@ -108,6 +108,8 @@ export default function(component) {
     let plot = null;
     let overlay = null;
     let disposed = false;
+    let dirty = false;
+    let submitting = false;
     let drawFrame = null;
 
     const setMessage = (text, kind = "") => {
@@ -121,14 +123,17 @@ export default function(component) {
         });
         status.textContent = `无弧 ${noarc.length}/${maximum} · 有弧 ${arc.length}/${maximum}`;
         const ready = noarc.length === maximum && arc.length === maximum;
-        applyButton.disabled = !ready;
+        applyButton.textContent = ready ? "确认并分析" : "保存当前选择";
+        applyButton.disabled = submitting || !dirty;
         if (ready) {
             setMessage("选择已完成。可继续调整，或点击“确认并分析”提交一次。", "ready");
         }
     };
 
     const removeOverlay = () => {
-        if (overlay) overlay.remove();
+        if (plot) {
+            plot.querySelectorAll("[data-cycle-picker-overlay]").forEach(layer => layer.remove());
+        } else if (overlay) overlay.remove();
         overlay = null;
     };
 
@@ -176,6 +181,7 @@ export default function(component) {
         if (!plot || !plot.isConnected || !plot._fullLayout) return;
         removeOverlay();
         overlay = document.createElement("div");
+        overlay.dataset.cyclePickerOverlay = "true";
         Object.assign(overlay.style, {
             position: "absolute",
             inset: "0",
@@ -247,6 +253,7 @@ export default function(component) {
                 setMessage(`已加入${label}，可继续点击下一个周波。`);
             }
         }
+        dirty = true;
         updateControls();
         scheduleDraw();
     };
@@ -284,25 +291,9 @@ export default function(component) {
             updateControls();
         };
     });
-    root.querySelector('[data-action="clear-current"]').onclick = () => {
-        if (mode === "remove") {
-            noarc = [];
-            arc = [];
-        } else if (mode === "noarc") noarc = [];
-        else arc = [];
-        setMessage("已在本地清空，继续点选后再统一确认。", "");
-        updateControls();
-        scheduleDraw();
-    };
-    root.querySelector('[data-action="clear-all"]').onclick = () => {
-        noarc = [];
-        arc = [];
-        setMessage("已在本地全部清空，继续点选后再统一确认。", "");
-        updateControls();
-        scheduleDraw();
-    };
-    applyButton.onclick = () => {
-        if (noarc.length !== maximum || arc.length !== maximum) return;
+
+    const submitSelection = () => {
+        submitting = true;
         applyButton.disabled = true;
         applyButton.textContent = "正在提交…";
         setTriggerValue("applied", {
@@ -312,16 +303,52 @@ export default function(component) {
         });
     };
 
+    root.querySelector('[data-action="clear-current"]').onclick = () => {
+        if (mode === "remove") {
+            noarc = [];
+            arc = [];
+        } else if (mode === "noarc") noarc = [];
+        else arc = [];
+        dirty = true;
+        setMessage("正在清空已保存的选择…", "");
+        updateControls();
+        removeOverlay();
+        submitSelection();
+    };
+    root.querySelector('[data-action="clear-all"]').onclick = () => {
+        noarc = [];
+        arc = [];
+        dirty = true;
+        setMessage("正在清空全部已保存选择…", "");
+        updateControls();
+        removeOverlay();
+        submitSelection();
+    };
+    applyButton.onclick = () => {
+        if (!dirty || submitting) return;
+        submitSelection();
+    };
+
+    const registry = window.__streamlitCyclePickerRegistry ??= new Map();
+    const previousDispose = registry.get(data.chartKey);
+    if (previousDispose) previousDispose();
+
     updateControls();
     attach();
     const timer = window.setInterval(attach, 150);
     window.addEventListener("resize", scheduleDraw);
-    return () => {
+    const dispose = () => {
+        if (disposed) return;
         disposed = true;
         window.clearInterval(timer);
         window.removeEventListener("resize", scheduleDraw);
         if (drawFrame !== null) window.cancelAnimationFrame(drawFrame);
         detachPlot();
+    };
+    registry.set(data.chartKey, dispose);
+    return () => {
+        if (registry.get(data.chartKey) === dispose) registry.delete(data.chartKey);
+        dispose();
     };
 }
 """

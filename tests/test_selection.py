@@ -5,12 +5,14 @@ from src.analysis.selection import (
 )
 
 
-def test_normalize_cycle_selection_accepts_only_complete_disjoint_submission() -> None:
+def test_normalize_cycle_selection_accepts_partial_or_complete_disjoint_submission() -> None:
     assert normalize_cycle_selection([100, 200], [300, 400], [100, 200, 300, 400], 2) == (
         [100, 200],
         [300, 400],
     )
-    assert normalize_cycle_selection([100], [300, 400], [100, 200, 300, 400], 2) is None
+    assert normalize_cycle_selection([100], [], [100, 200, 300, 400], 2) == ([100], [])
+    assert normalize_cycle_selection([], [], [100, 200, 300, 400], 2) == ([], [])
+    assert normalize_cycle_selection([100, 200, 300], [], [100, 200, 300, 400], 2) is None
     assert normalize_cycle_selection([100, 200], [200, 400], [100, 200, 300, 400], 2) is None
     assert normalize_cycle_selection([100, 999], [300, 400], [100, 200, 300, 400], 2) is None
 

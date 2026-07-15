@@ -9,7 +9,7 @@ def normalize_cycle_selection(
     valid_starts: list[int],
     maximum: int,
 ) -> tuple[list[int], list[int]] | None:
-    """Validate a cycle-picker submission before copying it into session state."""
+    """Validate a complete or partial cycle-picker submission."""
     if not isinstance(noarc, list) or not isinstance(arc, list):
         return None
     try:
@@ -19,8 +19,8 @@ def normalize_cycle_selection(
         return None
     valid = set(valid_starts)
     if (
-        len(normalized_noarc) != maximum
-        or len(normalized_arc) != maximum
+        len(normalized_noarc) > maximum
+        or len(normalized_arc) > maximum
         or not set(normalized_noarc).issubset(valid)
         or not set(normalized_arc).issubset(valid)
         or set(normalized_noarc) & set(normalized_arc)
