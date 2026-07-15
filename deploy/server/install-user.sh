@@ -89,15 +89,20 @@ WantedBy=default.target
 EOF
 
 systemctl --user daemon-reload
-systemctl --user enable --now streamlit-analysis.service
+systemctl --user enable streamlit-analysis.service
+systemctl --user restart streamlit-analysis.service
 
+HEALTH_HOST="$SERVICE_HOST"
+if [[ "$HEALTH_HOST" == "0.0.0.0" || "$HEALTH_HOST" == "::" ]]; then
+  HEALTH_HOST="127.0.0.1"
+fi
 for _ in {1..30}; do
-  if curl -fsS "http://127.0.0.1:$SERVICE_PORT/_stcore/health" >/dev/null; then
+  if curl -fsS "http://$HEALTH_HOST:$SERVICE_PORT/_stcore/health" >/dev/null; then
     break
   fi
   sleep 1
 done
-curl -fsS "http://127.0.0.1:$SERVICE_PORT/_stcore/health"
+curl -fsS "http://$HEALTH_HOST:$SERVICE_PORT/_stcore/health"
 printf '\nAPP_ROOT=%s\nSTATE_ROOT=%s\nDATA_ROOT=%s\nHOST=%s\nPORT=%s\n' \
   "$APP_ROOT" "$STATE_ROOT" "$DATA_ROOT" "$SERVICE_HOST" "$SERVICE_PORT"
 systemctl --user --no-pager --full status streamlit-analysis.service | head -n 20

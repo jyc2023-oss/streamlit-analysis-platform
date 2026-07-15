@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+import html
 import json
 import math
 from typing import Any
 
+import numpy as np
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
-from src.analysis import ANALYSIS_TYPES, run_analysis
+from src.analysis import (
+    ANALYSIS_TYPES,
+    PAIRED_ANALYSIS_TYPES,
+    PairedChannelCycles,
+    detect_cycle_starts,
+    run_analysis,
+    run_paired_analysis,
+)
 from src.auth.ui import render_sidebar, require_user
-from src.components.plots import render_analysis_output
+from src.components.plots import render_analysis_output, render_paired_output
 from src.config import get_settings
 from src.db import init_db
-from src.services.datasets import list_datasets, load_channel, scan_datasets
+from src.services.datasets import downsample, list_datasets, load_channel, scan_datasets
 from src.services.jobs import (
     create_job,
     mark_failed,
@@ -22,6 +33,7 @@ from src.services.jobs import (
 
 CHANNEL_LABELS_8 = ["5m", "10m", "20m", "40m", "80m", "120m", "160m", "背景支路"]
 CHANNEL_LABELS_2 = ["电弧发生处", "2m主干"]
+ALL_ANALYSIS_TYPES = {**ANALYSIS_TYPES, **PAIRED_ANALYSIS_TYPES}
 
 
 @st.cache_data(show_spinner=False, ttl=600)
@@ -35,9 +47,96 @@ def compute_preview(
     analysis_type: str,
     parameters_json: str,
 ):
-    del modified_at  # 文件变化时用于自动使缓存失效。
+    del modified_at
     values, _ = load_channel(dataset_id, channel, start, end)
-    return run_analysis(analysis_type, values, sample_rate, json.loads(parameters_json))
+    parameters = json.loads(parameters_json)
+    if analysis_type == "waveform":
+        parameters["max_output_points"] = 40_000
+        parameters["time_offset"] = start / sample_rate
+    return run_analysis(analysis_type, values, sample_rate, parameters)
+
+
+@st.cache_data(show_spinner=False, ttl=600)
+def load_cycle_context(
+    dataset_8_id: int,
+    modified_8: str,
+    dataset_2_id: int,
+    modified_2: str,
+    sample_rate: float,
+    usable_samples: int,
+) -> dict[str, Any]:
+    del modified_8, modified_2
+    reference, _ = load_channel(dataset_8_id, "CH07", 0, usable_samples)
+    starts = detect_cycle_starts(reference, sample_rate, usable_samples)
+    traces = []
+    references = [
+        (dataset_8_id, "CH07", "8CH · CH07 · 160m"),
+        (dataset_8_id, "CH08", "8CH · CH08 · 背景支路"),
+        (dataset_2_id, "CH01", "2CH · CH01 · 电弧发生处"),
+        (dataset_2_id, "CH02", "2CH · CH02 · 2m主干"),
+    ]
+    for dataset_id, channel, label in references:
+        values = (
+            reference
+            if (dataset_id, channel) == (dataset_8_id, "CH07")
+            else load_channel(dataset_id, channel, 0, usable_samples)[0]
+        )
+        indices, sampled = downsample(values, 30_000)
+        traces.append(
+            {
+                "label": label,
+                "time": indices.astype(np.float64) / sample_rate,
+                "values": sampled,
+            }
+        )
+    return {
+        "starts": starts,
+        "cycle_points": int(round(sample_rate / 50.0)),
+        "traces": traces,
+    }
+
+
+@st.cache_data(show_spinner=False, ttl=600)
+def compute_paired_preview(
+    dataset_8_id: int,
+    modified_8: str,
+    channels_8: tuple[str, ...],
+    dataset_2_id: int,
+    modified_2: str,
+    channels_2: tuple[str, ...],
+    sample_rate: float,
+    noarc_starts: tuple[int, ...],
+    arc_starts: tuple[int, ...],
+    cycle_points: int,
+    analysis_type: str,
+    parameters_json: str,
+):
+    del modified_8, modified_2
+
+    def cycles(dataset_id: int, channel: str, starts: tuple[int, ...]) -> list[np.ndarray]:
+        return [
+            load_channel(dataset_id, channel, start, start + cycle_points)[0] for start in starts
+        ]
+
+    paired_channels = []
+    for group, dataset_id, channels, labels in (
+        ("8CH", dataset_8_id, channels_8, CHANNEL_LABELS_8),
+        ("2CH", dataset_2_id, channels_2, CHANNEL_LABELS_2),
+    ):
+        for index, channel in enumerate(channels):
+            business_label = labels[index] if index < len(labels) else channel
+            paired_channels.append(
+                PairedChannelCycles(
+                    label=f"{group}-{channel} {business_label}",
+                    group=group,
+                    channel=channel,
+                    noarc_cycles=cycles(dataset_id, channel, noarc_starts),
+                    arc_cycles=cycles(dataset_id, channel, arc_starts),
+                )
+            )
+    return run_paired_analysis(
+        analysis_type, paired_channels, sample_rate, json.loads(parameters_json)
+    )
 
 
 def choose_dataset(title: str, datasets: list[dict[str, Any]], key: str) -> dict | None:
@@ -46,7 +145,13 @@ def choose_dataset(title: str, datasets: list[dict[str, Any]], key: str) -> dict
         return None
     labels = {f"{item['name']}  ·  #{item['id']}": item for item in datasets}
     selected = st.selectbox(title, list(labels), key=key)
-    return labels[selected]
+    item = labels[selected]
+    safe_name = html.escape(item["name"])
+    st.markdown(
+        f'<div class="full-file-name" title="{safe_name}">{safe_name}</div>',
+        unsafe_allow_html=True,
+    )
+    return item
 
 
 def channel_length(dataset: dict[str, Any], channel: str) -> int:
@@ -64,15 +169,80 @@ def add_channel_options(
 ) -> None:
     if dataset is None:
         return
-    channels = dataset["metadata"].get("channels", [])
-    for index, channel in enumerate(channels):
+    for index, channel in enumerate(dataset["metadata"].get("channels", [])):
         business_name = (
             business_labels[index]
             if business_labels is not None and index < len(business_labels)
             else channel
         )
-        label = f"{group} · {channel} · {business_name}"
-        options[label] = (dataset, channel)
+        options[f"{group} · {channel} · {business_name}"] = (dataset, channel)
+
+
+def build_cycle_selection_figure(
+    context: dict[str, Any],
+    sample_rate: float,
+    noarc_starts: list[int],
+    arc_starts: list[int],
+) -> go.Figure:
+    figure = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.055)
+    colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd"]
+    for row, (trace, color) in enumerate(zip(context["traces"], colors, strict=True), 1):
+        figure.add_scattergl(
+            x=trace["time"],
+            y=trace["values"],
+            mode="lines",
+            line={"color": color, "width": 0.8},
+            name=trace["label"],
+            row=row,
+            col=1,
+        )
+        figure.update_yaxes(title_text=trace["label"], gridcolor="#e2e8f0", row=row, col=1)
+    duration = context["cycle_points"] / sample_rate
+    for starts, color in ((noarc_starts, "#2563eb"), (arc_starts, "#dc2626")):
+        for start in starts:
+            left = start / sample_rate
+            for row in range(1, 5):
+                figure.add_vrect(
+                    x0=left,
+                    x1=left + duration,
+                    fillcolor=color,
+                    opacity=0.16,
+                    line_width=0,
+                    row=row,
+                    col=1,
+                )
+    figure.update_xaxes(title_text="时间 (s)", gridcolor="#e2e8f0", row=4, col=1)
+    figure.update_layout(
+        title="周波选择预览（蓝色：无弧，红色：有弧）",
+        height=700,
+        margin={"l": 105, "r": 20, "t": 65, "b": 45},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        font={"color": "#0f172a"},
+        hovermode="x unified",
+        legend={"orientation": "h", "y": 1.02},
+    )
+    return figure
+
+
+def render_file_info(
+    placeholder: Any, selected_8: dict[str, Any] | None, selected_2: dict[str, Any] | None
+) -> None:
+    with placeholder.container():
+        st.divider()
+        st.caption("当前配对数据")
+        if selected_8:
+            st.markdown("**8 通道文件**")
+            st.markdown(
+                f'<div class="file-info-name">{html.escape(selected_8["name"])}</div>',
+                unsafe_allow_html=True,
+            )
+        if selected_2:
+            st.markdown("**2 通道文件**")
+            st.markdown(
+                f'<div class="file-info-name">{html.escape(selected_2["name"])}</div>',
+                unsafe_allow_html=True,
+            )
 
 
 st.set_page_config(page_title="分析工作台", page_icon="📈", layout="wide")
@@ -84,7 +254,7 @@ settings = get_settings()
 st.markdown(
     """
     <style>
-      .block-container {max-width: 1900px; padding-top: 1.1rem; padding-bottom: 2rem;}
+      .block-container {max-width: 1960px; padding-top: 1.1rem; padding-bottom: 2rem;}
       div[data-testid="stVerticalBlockBorderWrapper"] {
         border-color: #dbe4f0; border-radius: 14px; box-shadow: 0 8px 24px rgba(15,23,42,.05);
       }
@@ -95,6 +265,18 @@ st.markdown(
         color:#64748b; font-size:.82rem; letter-spacing:.08em; text-transform:uppercase;
       }
       .channel-caption {color:#64748b; font-size:.88rem; margin-top:-.4rem;}
+      .full-file-name, .file-info-name {
+        color:#475569; font-size:.78rem; line-height:1.35; overflow-wrap:anywhere;
+        margin:-.25rem 0 .65rem;
+      }
+      [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        min-height:3.15rem; height:auto;
+      }
+      [data-testid="stSelectbox"] div[data-baseweb="select"] span {
+        white-space:normal !important; overflow:visible !important; text-overflow:clip !important;
+        overflow-wrap:anywhere;
+      }
+      div[role="option"] {white-space:normal !important; overflow-wrap:anywhere;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -111,25 +293,25 @@ if not datasets:
     st.info("没有可分析的数据。请先到“数据浏览”页面刷新索引。")
     st.stop()
 
-left_panel, screen_panel, right_panel = st.columns([1.25, 4.9, 1.55], gap="medium")
+left_panel, screen_panel, right_panel = st.columns([1.2, 4.55, 2.05], gap="medium")
 
 with left_panel:
     with st.container(border=True):
         st.markdown("#### 分析方法")
         analysis_type = st.radio(
             "选择分析方法",
-            list(ANALYSIS_TYPES),
+            list(ALL_ANALYSIS_TYPES),
             format_func=lambda key: (
-                f"{ANALYSIS_TYPES[key]['icon']}  {ANALYSIS_TYPES[key]['label']}"
+                f"{ALL_ANALYSIS_TYPES[key]['icon']}  {ALL_ANALYSIS_TYPES[key]['label']}"
             ),
             label_visibility="collapsed",
             key="workbench_analysis_type",
         )
-        definition = ANALYSIS_TYPES[analysis_type]
+        definition = ALL_ANALYSIS_TYPES[analysis_type]
         st.caption(definition["description"])
         st.divider()
         st.markdown("**操作提示**")
-        st.caption("鼠标滚轮缩放，拖动选择区域；双击恢复完整视图。图表右上角也可以直接截图。")
+        st.caption("鼠标滚轮缩放，拖动选择区域；双击恢复完整视图。图表右上角可以直接截图。")
 
 with right_panel:
     with st.container(border=True):
@@ -160,180 +342,307 @@ with right_panel:
 with screen_panel:
     screen_placeholder = st.empty()
 
-channel_options: dict[str, tuple[dict[str, Any], str]] = {}
-add_channel_options(channel_options, selected_8, "8CH", CHANNEL_LABELS_8)
-add_channel_options(channel_options, selected_2, "2CH", CHANNEL_LABELS_2)
-if selected_other and selected_other["id"] not in {
-    item["id"] for item in (selected_8, selected_2) if item
-}:
-    add_channel_options(channel_options, selected_other, "其他")
+is_paired = analysis_type in PAIRED_ANALYSIS_TYPES
 
-if not channel_options:
-    st.warning("没有可选择的通道。请先索引一个 8 通道、2 通道或其他数值数据文件。")
-    st.stop()
+if is_paired:
+    render_file_info(file_info_placeholder, selected_8, selected_2)
+    if not selected_8 or not selected_2:
+        with screen_placeholder.container(border=True):
+            st.error("此分析需要同时选择一个 8 通道文件和一个 2 通道文件。")
+        st.stop()
+    metadata_8 = selected_8["metadata"]
+    metadata_2 = selected_2["metadata"]
+    sample_rate_8 = float(metadata_8.get("sample_rate") or 0)
+    sample_rate_2 = float(metadata_2.get("sample_rate") or 0)
+    if sample_rate_8 <= 0 or not np.isclose(sample_rate_8, sample_rate_2):
+        with screen_placeholder.container(border=True):
+            st.error(f"两个文件采样率不一致：8CH={sample_rate_8:g} Hz，2CH={sample_rate_2:g} Hz。")
+        st.stop()
+    usable_samples = min(
+        int(metadata_8.get("total_samples", 0)), int(metadata_2.get("total_samples", 0))
+    )
+    if usable_samples < int(round(sample_rate_8 / 50)) * 2:
+        with screen_placeholder.container(border=True):
+            st.error("两个文件的共同长度不足 2 个 50 Hz 周波。")
+        st.stop()
 
-with st.container(border=True):
-    st.markdown("#### 通道选择")
-    st.markdown(
-        '<div class="channel-caption">默认按照原设备的 8 通道 + 2 通道顺序排列</div>',
-        unsafe_allow_html=True,
-    )
-    channel_key = "_".join(
-        str(item["id"]) for item in (selected_8, selected_2, selected_other) if item
-    )
-    selected_channel_label = st.pills(
-        "通道",
-        list(channel_options),
-        default=list(channel_options)[0],
-        selection_mode="single",
-        label_visibility="collapsed",
-        key=f"workbench_channel_{channel_key}",
-    )
-    selected_channel_label = selected_channel_label or list(channel_options)[0]
-
-selected_dataset, channel = channel_options[selected_channel_label]
-metadata = selected_dataset["metadata"]
-total_samples = channel_length(selected_dataset, channel)
-detected_rate = metadata.get("sample_rate")
-if total_samples < 2:
-    st.error("所选通道没有足够的采样点。")
-    st.stop()
-
-with st.expander("分析区间与算法参数", expanded=False):
-    range_columns = st.columns(3)
-    default_length = min(
-        total_samples,
-        settings.max_analysis_samples,
-        int(detected_rate or min(total_samples, 100_000)),
-    )
-    start = int(
-        range_columns[0].number_input(
-            "起始采样点",
-            min_value=0,
-            max_value=total_samples - 1,
-            value=0,
-            key=f"workbench_start_{selected_dataset['id']}_{channel}",
-        )
-    )
-    end = int(
-        range_columns[1].number_input(
-            "结束采样点（不包含）",
-            min_value=start + 1,
-            max_value=total_samples,
-            value=max(start + 1, min(total_samples, start + default_length)),
-            key=f"workbench_end_{selected_dataset['id']}_{channel}",
-        )
-    )
-    sample_rate = float(
-        range_columns[2].number_input(
-            "采样率 (Hz)",
-            min_value=0.001,
-            value=float(detected_rate or 1_000_000.0),
-            format="%.3f",
-            help="BIN 自动读取文件头；MAT 文件需要人工确认。",
-            key=f"workbench_rate_{selected_dataset['id']}",
-        )
-    )
-
-    parameters: dict[str, Any] = {}
-    if analysis_type in {"fft", "power_spectrum"}:
-        frequency_columns = st.columns(3)
-        parameters["min_frequency"] = frequency_columns[0].number_input(
-            "最小频率 (Hz)", 0.0, sample_rate / 2, 0.0, key=f"min_freq_{analysis_type}"
-        )
-        parameters["max_frequency"] = frequency_columns[1].number_input(
-            "最大频率 (Hz)",
-            0.001,
-            sample_rate / 2,
-            sample_rate / 2,
-            key=f"max_freq_{analysis_type}",
-        )
-        if analysis_type == "fft":
-            parameters["detrend"] = frequency_columns[2].checkbox(
-                "去除直流分量", value=True, key="fft_detrend"
-            )
-        else:
-            parameters["segment_length"] = frequency_columns[2].selectbox(
-                "Welch 分段长度", [512, 1024, 2048, 4096, 8192], index=3
-            )
-    elif analysis_type == "bandpass":
-        filter_columns = st.columns(3)
-        parameters["low_frequency"] = filter_columns[0].number_input(
-            "下限频率 (Hz)", 0.001, sample_rate / 2, min(10.0, sample_rate / 8)
-        )
-        parameters["high_frequency"] = filter_columns[1].number_input(
-            "上限频率 (Hz)", 0.002, sample_rate / 2, sample_rate / 4
-        )
-        parameters["order"] = filter_columns[2].number_input("滤波器阶数", 1, 12, 4)
-    elif analysis_type == "envelope":
-        parameters["smooth_ms"] = st.number_input("包络平滑窗口 (ms)", 0.0, 1000.0, 1.0, 0.1)
-    elif analysis_type == "wavelet_energy":
-        wavelet_columns = st.columns(2)
-        parameters["wavelet"] = wavelet_columns[0].selectbox(
-            "小波", ["db3", "db4", "bior3.1", "sym4", "coif3"]
-        )
-        parameters["level"] = wavelet_columns[1].number_input("分解层数", 1, 8, 5)
-
-if end - start > settings.max_analysis_samples:
-    st.error(f"单次最多分析 {settings.max_analysis_samples:,} 个采样点，请缩小区间。")
-    st.stop()
-
-parameters_json = json.dumps(parameters, ensure_ascii=False, sort_keys=True)
-try:
-    with st.spinner(f"正在生成{definition['label']}……"):
-        output = compute_preview(
-            selected_dataset["id"],
-            selected_dataset["modified_at"],
-            channel,
-            start,
-            end,
-            sample_rate,
-            analysis_type,
-            parameters_json,
-        )
-except Exception as exc:
+    cycle_counts = definition["cycle_counts"]
     with screen_placeholder.container(border=True):
-        st.error(f"无法生成分析图：{exc}")
-    st.stop()
+        st.markdown(
+            '<div class="screen-label">CYCLE SELECTION & ANALYSIS</div>',
+            unsafe_allow_html=True,
+        )
+        control_columns = st.columns(3)
+        if len(cycle_counts) == 1:
+            cycle_count = cycle_counts[0]
+            control_columns[0].text_input("每种状态周波数", str(cycle_count), disabled=True)
+        else:
+            cycle_count = control_columns[0].selectbox(
+                "每种状态周波数", cycle_counts, key=f"paired_count_{analysis_type}"
+            )
+        paired_parameters: dict[str, Any] = {}
+        if analysis_type == "paired_absolute_fft":
+            paired_parameters["low_frequency"] = control_columns[1].number_input(
+                "滤波下限 (Hz)", 0.0, sample_rate_8 / 2, 0.0
+            )
+            paired_parameters["high_frequency"] = control_columns[2].number_input(
+                "滤波上限 (Hz)",
+                0.001,
+                sample_rate_8 / 2,
+                sample_rate_8 / 2,
+            )
+        elif analysis_type == "paired_wpt_ratio":
+            paired_parameters["bands"] = control_columns[1].selectbox(
+                "小波包频带数量", [32, 64, 128], index=2
+            )
+        with st.spinner("正在读取完整波形并识别 50 Hz 周波……"):
+            context = load_cycle_context(
+                selected_8["id"],
+                selected_8["modified_at"],
+                selected_2["id"],
+                selected_2["modified_at"],
+                sample_rate_8,
+                usable_samples,
+            )
+        starts = [int(item) for item in context["starts"]]
+        if len(starts) < cycle_count * 2:
+            st.error(f"仅识别到 {len(starts)} 个完整周波，无法分别选择 {cycle_count} 个。")
+            st.stop()
 
-with screen_placeholder.container(border=True):
-    st.markdown('<div class="screen-label">ANALYSIS DISPLAY</div>', unsafe_allow_html=True)
-    render_analysis_output(output, show_table=False)
-    metric_columns = st.columns(4)
-    metric_columns[0].metric("当前通道", selected_channel_label.split(" · ")[-1])
-    metric_columns[1].metric("分析点数", f"{end - start:,}")
-    metric_columns[2].metric("采样率", f"{sample_rate:g} Hz")
-    metric_columns[3].metric("分析时长", f"{(end - start) / sample_rate:.6g} s")
+        def format_cycle(start: int) -> str:
+            return (
+                f"周波 {starts.index(start) + 1:03d} · "
+                f"{start / sample_rate_8:.6f}–"
+                f"{(start + context['cycle_points']) / sample_rate_8:.6f} s"
+            )
 
-with file_info_placeholder.container():
-    st.divider()
-    st.caption("当前数据")
-    st.write(f"**{selected_dataset['name']}**")
-    st.caption(f"{metadata.get('channels_count', '?')} 通道 · {total_samples:,} 点")
-    st.caption(f"当前：{channel}")
+        select_columns = st.columns(2)
+        noarc_starts = select_columns[0].multiselect(
+            f"无弧周波（请选择 {cycle_count} 个）",
+            starts,
+            max_selections=cycle_count,
+            format_func=format_cycle,
+            key=f"noarc_{analysis_type}_{selected_8['id']}_{selected_2['id']}_{cycle_count}",
+        )
+        arc_starts = select_columns[1].multiselect(
+            f"有弧周波（请选择 {cycle_count} 个）",
+            starts,
+            max_selections=cycle_count,
+            format_func=format_cycle,
+            key=f"arc_{analysis_type}_{selected_8['id']}_{selected_2['id']}_{cycle_count}",
+        )
+        st.plotly_chart(
+            build_cycle_selection_figure(context, sample_rate_8, noarc_starts, arc_starts),
+            width="stretch",
+        )
+        st.caption(
+            f"已选择：无弧 {len(noarc_starts)}/{cycle_count}，"
+            f"有弧 {len(arc_starts)}/{cycle_count}。选择完成后自动生成分析图。"
+        )
+        if set(noarc_starts) & set(arc_starts):
+            st.error("同一个周波不能同时作为无弧和有弧，请重新选择。")
+            st.stop()
+        if len(noarc_starts) != cycle_count or len(arc_starts) != cycle_count:
+            st.info("请在上方分别选满无弧和有弧周波。")
+            st.stop()
+        with st.spinner(f"正在生成{definition['label']}……"):
+            output = compute_paired_preview(
+                selected_8["id"],
+                selected_8["modified_at"],
+                tuple(metadata_8.get("channels", [])),
+                selected_2["id"],
+                selected_2["modified_at"],
+                tuple(metadata_2.get("channels", [])),
+                sample_rate_8,
+                tuple(noarc_starts),
+                tuple(arc_starts),
+                context["cycle_points"],
+                analysis_type,
+                json.dumps(paired_parameters, sort_keys=True),
+            )
+        st.divider()
+        render_paired_output(output, show_table=False)
+        metric_columns = st.columns(4)
+        metric_columns[0].metric("分析通道", "8 + 2")
+        metric_columns[1].metric("每种状态", f"{cycle_count} 周波")
+        metric_columns[2].metric("采样率", f"{sample_rate_8:g} Hz")
+        metric_columns[3].metric("单周波", f"{context['cycle_points']:,} 点")
 
-safe_stem = f"{selected_dataset['id']}_{channel}_{analysis_type}".replace("/", "_")
-png_bytes = render_figure_bytes(output, "png")
-csv_bytes = output.table.to_csv(index=False).encode("utf-8-sig")
-with action_placeholder.container():
-    action_columns = st.columns(3)
-    save_clicked = action_columns[0].button("保存分析结果", type="primary", width="stretch")
-    action_columns[1].download_button(
-        "保存图片 PNG",
-        data=png_bytes,
-        file_name=f"{safe_stem}.png",
-        mime="image/png",
-        width="stretch",
-    )
-    action_columns[2].download_button(
-        "导出数据 CSV",
-        data=csv_bytes,
-        file_name=f"{safe_stem}.csv",
-        mime="text/csv",
-        width="stretch",
-    )
+    safe_stem = f"{selected_8['id']}_{selected_2['id']}_{analysis_type}"
+    job_dataset_id = selected_8["id"]
+    job_parameters = {
+        "paired_dataset_2_id": selected_2["id"],
+        "sample_rate": sample_rate_8,
+        "cycle_count": cycle_count,
+        "noarc_starts": noarc_starts,
+        "arc_starts": arc_starts,
+        **paired_parameters,
+    }
+    detail = {
+        "8通道文件": selected_8["relative_path"],
+        "2通道文件": selected_2["relative_path"],
+        "分析方法": definition["label"],
+        "采样率": sample_rate_8,
+        "算法参数": job_parameters,
+    }
+else:
+    channel_options: dict[str, tuple[dict[str, Any], str]] = {}
+    add_channel_options(channel_options, selected_8, "8CH", CHANNEL_LABELS_8)
+    add_channel_options(channel_options, selected_2, "2CH", CHANNEL_LABELS_2)
+    if selected_other and selected_other["id"] not in {
+        item["id"] for item in (selected_8, selected_2) if item
+    }:
+        add_channel_options(channel_options, selected_other, "其他")
+    if not channel_options:
+        st.warning("没有可选择的通道。请先索引一个数值数据文件。")
+        st.stop()
 
-if save_clicked:
+    with st.container(border=True):
+        st.markdown("#### 通道选择")
+        st.markdown(
+            '<div class="channel-caption">默认按照原设备的 8 通道 + 2 通道顺序排列</div>',
+            unsafe_allow_html=True,
+        )
+        channel_key = "_".join(
+            str(item["id"]) for item in (selected_8, selected_2, selected_other) if item
+        )
+        selected_channel_label = (
+            st.pills(
+                "通道",
+                list(channel_options),
+                default=list(channel_options)[0],
+                selection_mode="single",
+                label_visibility="collapsed",
+                key=f"workbench_channel_{channel_key}",
+            )
+            or list(channel_options)[0]
+        )
+
+    selected_dataset, channel = channel_options[selected_channel_label]
+    metadata = selected_dataset["metadata"]
+    total_samples = channel_length(selected_dataset, channel)
+    detected_rate = metadata.get("sample_rate")
+    if total_samples < 2:
+        st.error("所选通道没有足够的采样点。")
+        st.stop()
+
+    with st.expander("分析区间与算法参数", expanded=False):
+        range_columns = st.columns(3)
+        default_length = (
+            total_samples
+            if analysis_type == "waveform"
+            else min(
+                total_samples,
+                settings.max_analysis_samples,
+                int(detected_rate or min(total_samples, 100_000)),
+            )
+        )
+        start = int(
+            range_columns[0].number_input(
+                "起始采样点",
+                0,
+                total_samples - 1,
+                0,
+                key=f"workbench_start_{analysis_type}_{selected_dataset['id']}_{channel}",
+            )
+        )
+        end = int(
+            range_columns[1].number_input(
+                "结束采样点（不包含）",
+                start + 1,
+                total_samples,
+                max(start + 1, min(total_samples, start + default_length)),
+                key=f"workbench_end_{analysis_type}_{selected_dataset['id']}_{channel}",
+            )
+        )
+        sample_rate = float(
+            range_columns[2].number_input(
+                "采样率 (Hz)",
+                min_value=0.001,
+                value=float(detected_rate or 1_000_000.0),
+                format="%.3f",
+                key=f"workbench_rate_{selected_dataset['id']}",
+            )
+        )
+        parameters: dict[str, Any] = {}
+        if analysis_type in {"fft", "power_spectrum"}:
+            frequency_columns = st.columns(3)
+            parameters["min_frequency"] = frequency_columns[0].number_input(
+                "最小频率 (Hz)", 0.0, sample_rate / 2, 0.0, key=f"min_freq_{analysis_type}"
+            )
+            parameters["max_frequency"] = frequency_columns[1].number_input(
+                "最大频率 (Hz)",
+                0.001,
+                sample_rate / 2,
+                sample_rate / 2,
+                key=f"max_freq_{analysis_type}",
+            )
+            if analysis_type == "fft":
+                parameters["detrend"] = frequency_columns[2].checkbox(
+                    "去除直流分量", value=True, key="fft_detrend"
+                )
+            else:
+                parameters["segment_length"] = frequency_columns[2].selectbox(
+                    "Welch 分段长度", [512, 1024, 2048, 4096, 8192], index=3
+                )
+        elif analysis_type == "bandpass":
+            filter_columns = st.columns(3)
+            parameters["low_frequency"] = filter_columns[0].number_input(
+                "下限频率 (Hz)", 0.001, sample_rate / 2, min(10.0, sample_rate / 8)
+            )
+            parameters["high_frequency"] = filter_columns[1].number_input(
+                "上限频率 (Hz)", 0.002, sample_rate / 2, sample_rate / 4
+            )
+            parameters["order"] = filter_columns[2].number_input("滤波器阶数", 1, 12, 4)
+        elif analysis_type == "envelope":
+            parameters["smooth_ms"] = st.number_input("包络平滑窗口 (ms)", 0.0, 1000.0, 1.0, 0.1)
+        elif analysis_type == "wavelet_energy":
+            wavelet_columns = st.columns(2)
+            parameters["wavelet"] = wavelet_columns[0].selectbox(
+                "小波", ["db3", "db4", "bior3.1", "sym4", "coif3"]
+            )
+            parameters["level"] = wavelet_columns[1].number_input("分解层数", 1, 8, 5)
+
+    if analysis_type != "waveform" and end - start > settings.max_analysis_samples:
+        st.error(f"单次最多分析 {settings.max_analysis_samples:,} 个采样点，请缩小区间。")
+        st.stop()
+    try:
+        with st.spinner(f"正在生成{definition['label']}……"):
+            output = compute_preview(
+                selected_dataset["id"],
+                selected_dataset["modified_at"],
+                channel,
+                start,
+                end,
+                sample_rate,
+                analysis_type,
+                json.dumps(parameters, ensure_ascii=False, sort_keys=True),
+            )
+    except Exception as exc:
+        with screen_placeholder.container(border=True):
+            st.error(f"无法生成分析图：{exc}")
+        st.stop()
+
+    with screen_placeholder.container(border=True):
+        st.markdown('<div class="screen-label">ANALYSIS DISPLAY</div>', unsafe_allow_html=True)
+        render_analysis_output(output, show_table=False)
+        metric_columns = st.columns(4)
+        metric_columns[0].metric("当前通道", selected_channel_label.split(" · ")[-1])
+        metric_columns[1].metric("分析点数", f"{end - start:,}")
+        metric_columns[2].metric("采样率", f"{sample_rate:g} Hz")
+        metric_columns[3].metric("分析时长", f"{(end - start) / sample_rate:.6g} s")
+    with file_info_placeholder.container():
+        st.divider()
+        st.caption("当前数据")
+        st.markdown(
+            f'<div class="file-info-name">{html.escape(selected_dataset["name"])}</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(f"{metadata.get('channels_count', '?')} 通道 · {total_samples:,} 点")
+        st.caption(f"当前：{channel}")
+
+    safe_stem = f"{selected_dataset['id']}_{channel}_{analysis_type}".replace("/", "_")
+    job_dataset_id = selected_dataset["id"]
     job_parameters = {
         "channel": channel,
         "channel_label": selected_channel_label,
@@ -342,7 +651,29 @@ if save_clicked:
         "sample_rate": sample_rate,
         **parameters,
     }
-    job_id = create_job(user["id"], selected_dataset["id"], analysis_type, job_parameters)
+    detail = {
+        "文件": selected_dataset["relative_path"],
+        "通道": selected_channel_label,
+        "分析方法": definition["label"],
+        "采样区间": [start, end],
+        "采样率": sample_rate,
+        "算法参数": parameters,
+    }
+
+png_bytes = render_figure_bytes(output, "png")
+csv_bytes = output.table.to_csv(index=False).encode("utf-8-sig")
+with action_placeholder.container():
+    action_columns = st.columns(3)
+    save_clicked = action_columns[0].button("保存分析结果", type="primary", width="stretch")
+    action_columns[1].download_button(
+        "保存图片 PNG", png_bytes, f"{safe_stem}.png", "image/png", width="stretch"
+    )
+    action_columns[2].download_button(
+        "导出数据 CSV", csv_bytes, f"{safe_stem}.csv", "text/csv", width="stretch"
+    )
+
+if save_clicked:
+    job_id = create_job(user["id"], job_dataset_id, analysis_type, job_parameters)
     try:
         mark_running(job_id)
         save_job_result(job_id, user["id"], output)
@@ -354,13 +685,4 @@ if save_clicked:
 with st.expander("查看分析指标与完整参数"):
     detail_columns = st.columns([3, 2])
     detail_columns[0].dataframe(output.table, width="stretch", hide_index=True)
-    detail_columns[1].json(
-        {
-            "文件": selected_dataset["relative_path"],
-            "通道": selected_channel_label,
-            "分析方法": definition["label"],
-            "采样区间": [start, end],
-            "采样率": sample_rate,
-            "算法参数": parameters,
-        }
-    )
+    detail_columns[1].json(detail)

@@ -34,12 +34,29 @@ def _finite(values: np.ndarray) -> np.ndarray:
 
 def waveform(values: np.ndarray, sample_rate: float, params: dict[str, Any]) -> AnalysisOutput:
     values = _finite(values)
-    x = np.arange(values.size) / sample_rate
+    total_size = values.size
+    max_output_points = max(1000, int(params.get("max_output_points", 40_000)))
+    if total_size > max_output_points:
+        bucket_count = max(1, max_output_points // 2)
+        edges = np.linspace(0, total_size, bucket_count + 1, dtype=int)
+        selected: list[int] = []
+        for left, right in zip(edges[:-1], edges[1:], strict=True):
+            if right <= left:
+                continue
+            chunk = values[left:right]
+            selected.extend(sorted({left + int(np.argmin(chunk)), left + int(np.argmax(chunk))}))
+        indices = np.asarray(sorted(set(selected)), dtype=np.int64)
+        plot_values = values[indices]
+    else:
+        indices = np.arange(total_size, dtype=np.int64)
+        plot_values = values
+    time_offset = float(params.get("time_offset", 0.0))
+    x = time_offset + indices / sample_rate
     table = pd.DataFrame(
         {
             "指标": ["采样点数", "最小值", "最大值", "均值", "标准差", "均方根"],
             "数值": [
-                values.size,
+                total_size,
                 values.min(),
                 values.max(),
                 values.mean(),
@@ -48,7 +65,7 @@ def waveform(values: np.ndarray, sample_rate: float, params: dict[str, Any]) -> 
             ],
         }
     )
-    return AnalysisOutput("原始波形", x, values, "时间 (s)", "幅值", "line", table)
+    return AnalysisOutput("原始波形", x, plot_values, "时间 (s)", "幅值", "line", table)
 
 
 def fft_spectrum(values: np.ndarray, sample_rate: float, params: dict[str, Any]) -> AnalysisOutput:

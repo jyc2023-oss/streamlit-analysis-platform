@@ -9,7 +9,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 
-from src.analysis import AnalysisOutput
+from src.analysis import AnalysisOutput, PairedAnalysisOutput
 from src.analysis.registry import ALGORITHM_VERSION
 from src.config import get_settings
 from src.db import audit, transaction, utc_now
@@ -69,7 +69,11 @@ def mark_failed(job_id: str, error: Exception) -> None:
         )
 
 
-def render_figure_bytes(output: AnalysisOutput, file_format: str = "png") -> bytes:
+def render_figure_bytes(
+    output: AnalysisOutput | PairedAnalysisOutput, file_format: str = "png"
+) -> bytes:
+    if isinstance(output, PairedAnalysisOutput):
+        return _render_paired_figure_bytes(output, file_format)
     figure, axis = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
     if output.kind == "bar":
         width = float(output.x[1] - output.x[0]) * 0.85 if output.x.size > 1 else 0.8
@@ -86,11 +90,87 @@ def render_figure_bytes(output: AnalysisOutput, file_format: str = "png") -> byt
     return buffer.getvalue()
 
 
-def _write_figure(output: AnalysisOutput, path: Path, file_format: str) -> None:
+def _render_paired_figure_bytes(output: PairedAnalysisOutput, file_format: str) -> bytes:
+    if output.kind in {"paired_normalized_fft", "paired_absolute_fft"}:
+        figure, grid = plt.subplots(3, 4, figsize=(22, 13), constrained_layout=True)
+        axes = list(grid.flatten())
+        for axis in axes[10:]:
+            axis.axis("off")
+        for axis, panel in zip(axes, output.panels, strict=False):
+            axis.plot(panel.x, panel.noarc, color="#2563eb", linewidth=0.8, label="无弧")
+            axis.plot(panel.x, panel.arc, color="#dc2626", linewidth=0.8, label="有弧")
+            axis.set_title(panel.label)
+            axis.grid(True, alpha=0.25)
+            axis.legend(fontsize=8)
+            if output.kind == "paired_normalized_fft":
+                axis.set_xscale("log")
+                axis.set_xlim(10, float(panel.x[-1]))
+                axis.set_ylim(-190, 10)
+                axis.axvline(3000, color="gray", linestyle=":", alpha=0.5)
+                axis.axvline(500000, color="gray", linestyle=":", alpha=0.5)
+            else:
+                axis.set_xlim(float(panel.x[0]), float(panel.x[-1]))
+        figure.suptitle(output.title, fontsize=15, fontweight="bold")
+    elif output.kind == "paired_wpt_ratio":
+        figure, axis = plt.subplots(figsize=(14, 8), constrained_layout=True)
+        for panel in output.panels:
+            axis.plot(
+                panel.x,
+                panel.arc,
+                marker="o",
+                markersize=3,
+                linewidth=1.2,
+                label=panel.label,
+            )
+        axis.axhline(0, color="gray", linestyle=":")
+        axis.axhline(3, color="red", linestyle="--", alpha=0.75)
+        axis.legend(ncol=2, fontsize=9)
+        axis.grid(True, alpha=0.3)
+        axis.set_xlabel(output.x_label)
+        axis.set_ylabel(output.y_label)
+        axis.set_title(output.title)
+    else:
+        figure, axes = plt.subplots(1, 2, figsize=(22, 8.5), sharex=True, sharey=True)
+        for panel in output.panels:
+            axes[0].plot(
+                panel.x,
+                panel.arc,
+                marker="o",
+                markersize=3,
+                linewidth=1.2,
+                label=panel.label,
+            )
+            axes[1].plot(
+                panel.x,
+                panel.noarc,
+                marker="o",
+                markersize=3,
+                linewidth=1.2,
+                label=panel.label,
+            )
+        for axis, title in zip(axes, ("有弧", "无弧"), strict=True):
+            axis.set_title(title)
+            axis.set_xlabel(output.x_label)
+            axis.set_ylabel(output.y_label)
+            axis.grid(True, alpha=0.3)
+            axis.legend(ncol=2, fontsize=8)
+        figure.suptitle(output.title, fontsize=15, fontweight="bold")
+        figure.tight_layout()
+    buffer = BytesIO()
+    figure.savefig(buffer, format=file_format, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    return buffer.getvalue()
+
+
+def _write_figure(
+    output: AnalysisOutput | PairedAnalysisOutput, path: Path, file_format: str
+) -> None:
     path.write_bytes(render_figure_bytes(output, file_format))
 
 
-def save_job_result(job_id: str, user_id: int, output: AnalysisOutput) -> list[dict[str, Any]]:
+def save_job_result(
+    job_id: str, user_id: int, output: AnalysisOutput | PairedAnalysisOutput
+) -> list[dict[str, Any]]:
     now = datetime.now(UTC)
     result_dir = (
         get_settings().result_dir / str(now.year) / f"{now.month:02d}" / str(user_id) / job_id
