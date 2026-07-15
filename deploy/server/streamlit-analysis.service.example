@@ -1,0 +1,19 @@
+[Unit]
+Description=Streamlit Data Analysis Platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/streamlit-analysis-platform
+EnvironmentFile=%h/apps/streamlit-analysis-platform/.env
+Environment=MPLBACKEND=Agg
+ExecStart=%h/.local/bin/micromamba run -n streamlit-analysis python -m streamlit run app.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+UMask=0077
+
+[Install]
+WantedBy=default.target
