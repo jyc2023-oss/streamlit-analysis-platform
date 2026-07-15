@@ -20,6 +20,7 @@ from src.analysis import (
 )
 from src.analysis.selection import apply_cycle_click, clicked_cycle_from_points
 from src.auth.ui import render_sidebar, require_user
+from src.components.plotly_click import capture_plotly_click
 from src.components.plots import render_analysis_output, render_paired_output
 from src.config import get_settings
 from src.db import init_db
@@ -236,28 +237,6 @@ def build_cycle_selection_figure(
             col=1,
         )
         figure.update_yaxes(title_text=trace["label"], gridcolor="#e2e8f0", row=row, col=1)
-    starts = np.asarray(context["starts"], dtype=np.int64)
-    center_times = (starts + context["cycle_points"] / 2) / sample_rate
-    reference_trace = context["traces"][0]
-    center_values = np.interp(center_times, reference_trace["time"], reference_trace["values"])
-    cycle_numbers = np.arange(1, len(starts) + 1, dtype=np.int64)
-    figure.add_scattergl(
-        x=center_times,
-        y=center_values,
-        mode="markers",
-        marker={
-            "size": 11,
-            "color": "rgba(15,23,42,.16)",
-            "line": {"color": "rgba(15,23,42,.35)", "width": 1},
-        },
-        customdata=np.column_stack((starts, cycle_numbers)),
-        name="可点击周波中心",
-        hovertemplate=(
-            "周波 %{customdata[1]}<br>中心时间 %{x:.6f} s<br>点击加入当前类别<extra></extra>"
-        ),
-        row=1,
-        col=1,
-    )
     duration = context["cycle_points"] / sample_rate
     for starts, color in ((noarc_starts, "#2563eb"), (arc_starts, "#dc2626")):
         for start in starts:
@@ -274,7 +253,7 @@ def build_cycle_selection_figure(
                 )
     figure.update_xaxes(title_text="时间 (s)", gridcolor="#e2e8f0", row=4, col=1)
     figure.update_layout(
-        title="周波手动选择（点击波形或圆点；蓝色：无弧，红色：有弧）",
+        title="周波手动选择（直接点击任意波形；蓝色：无弧，红色：有弧）",
         height=700,
         margin={"l": 105, "r": 20, "t": 65, "b": 45},
         paper_bgcolor="#ffffff",
@@ -522,27 +501,31 @@ if is_paired:
             st.session_state[last_event_key] = None
             st.rerun()
 
-        cycle_event = st.plotly_chart(
+        chart_key = f"cycle_click_chart_{selection_scope}"
+        st.plotly_chart(
             build_cycle_selection_figure(
                 context,
                 sample_rate_8,
                 st.session_state[noarc_key],
                 st.session_state[arc_key],
             ),
-            key=f"cycle_click_chart_{selection_scope}",
-            on_select="rerun",
-            selection_mode="points",
+            key=chart_key,
             width="stretch",
         )
-        selected_points = cycle_event.get("selection", {}).get("points", [])
+        click_result = capture_plotly_click(
+            chart_key,
+            key=f"cycle_click_bridge_{selection_scope}",
+        )
+        click_payload = click_result.clicked
+        selected_points = [click_payload] if isinstance(click_payload, dict) else []
         clicked_start, event_signature = clicked_cycle_from_points(
             selected_points,
             starts,
             context["cycle_points"],
             sample_rate_8,
         )
-        if not selected_points:
-            st.session_state[last_event_key] = None
+        if event_signature is not None:
+            event_signature = (click_payload.get("nonce"), clicked_start)
         if event_signature is not None and st.session_state.get(last_event_key) != event_signature:
             st.session_state[last_event_key] = event_signature
             updated_noarc, updated_arc, notice = apply_cycle_click(
