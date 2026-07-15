@@ -1,0 +1,10 @@
+streamlit>=1.46,<2
+numpy>=2.0,<3
+pandas>=2.2,<3
+scipy>=1.14,<2
+h5py>=3.11,<4
+PyWavelets>=1.7,<2
+matplotlib>=3.9,<4
+plotly>=6.0,<7
+argon2-cffi>=23.1,<26
+python-dotenv>=1.0,<2

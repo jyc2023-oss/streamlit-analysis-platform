@@ -1,0 +1,42 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.streamlit/secrets.toml
+
+# Runtime state
+var/
+logs/
+results/
+cache/
+temp/
+
+# Raw and generated data
+*.mat
+*.MAT
+*.bin
+*.BIN
+*.h5
+*.hdf5
+*.zip
+*.7z
+*.rar
+*.png
+*.pdf
+*.csv
+*.xlsx
+!tests/fixtures/**
+!docs/**/*.png
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
