@@ -47,9 +47,41 @@ def render_global_theme() -> None:
         }
         [data-testid="stToolbar"] { color: var(--app-muted); }
         .stMainBlockContainer, .block-container {
-            max-width: 1840px;
+            max-width: 1960px;
             padding-top: 1.15rem;
             padding-bottom: 3.5rem;
+        }
+
+        .stMainBlockContainer:has(.login-page-marker) {
+            align-items: center;
+            display: flex;
+            min-height: calc(100vh - 4rem);
+            max-width: 44rem;
+            padding-bottom: 3rem;
+            padding-top: 3rem;
+        }
+        .stMainBlockContainer:has(.login-page-marker) > div { width: 100%; }
+        .login-page-marker { display: none; }
+        .login-intro {
+            margin: 0 auto 1.25rem;
+            text-align: center;
+        }
+        .login-intro h1 {
+            font-size: clamp(2.1rem, 4vw, 3.4rem);
+            line-height: 1.05;
+            margin: 0;
+        }
+        .login-intro p {
+            color: var(--app-muted);
+            font-size: 0.94rem;
+            margin: 0.7rem 0 0;
+        }
+        .stMainBlockContainer:has(.login-page-marker) [data-testid="stForm"] {
+            background: rgba(251, 253, 252, 0.94);
+            border-color: var(--app-line);
+            border-radius: var(--app-radius-panel);
+            box-shadow: var(--app-shadow);
+            padding: 1.2rem;
         }
 
         h1, h2, h3, h4 {
@@ -103,6 +135,17 @@ def render_global_theme() -> None:
             font-family: "Cascadia Mono", "Segoe UI Variable Display", sans-serif;
             font-size: clamp(1.35rem, 1.65vw, 2.05rem);
             letter-spacing: -0.045em;
+        }
+        .st-key-analysis_summary [data-testid="stMetric"] {
+            min-height: 4.3rem;
+            padding: 0.45rem 0.7rem;
+        }
+        .st-key-analysis_summary [data-testid="stMetricLabel"] {
+            font-size: 0.72rem;
+        }
+        .st-key-analysis_summary [data-testid="stMetricValue"] {
+            font-size: clamp(1rem, 1.15vw, 1.38rem);
+            letter-spacing: -0.035em;
         }
 
         .stButton > button, .stDownloadButton > button,

@@ -14,9 +14,8 @@ init_db()
 
 user = current_user()
 if user is None:
-    left, center, right = st.columns([1, 1.3, 1])
-    with center:
-        render_login()
+    st.markdown('<div class="login-page-marker"></div>', unsafe_allow_html=True)
+    render_login()
     st.stop()
 
 pages = [

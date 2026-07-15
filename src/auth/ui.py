@@ -23,8 +23,15 @@ def current_user() -> dict | None:
 
 
 def render_login() -> None:
-    st.title(get_settings().app_name)
-    st.caption("内部数据分析系统 · 请使用授权账号登录")
+    st.markdown(
+        f"""
+        <section class="login-intro">
+          <h1>{html.escape(get_settings().app_name)}</h1>
+          <p>内部数据分析系统 · 请使用授权账号登录</p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if count_users() == 0:
         if get_settings().app_env == "production":

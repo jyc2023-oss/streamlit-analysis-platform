@@ -288,9 +288,21 @@ st.markdown(
       [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
         min-height:3.15rem; height:auto;
       }
+      [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:first-child {
+        overflow-x:auto !important; overflow-y:hidden !important; scrollbar-width:thin;
+        scrollbar-color:#9fb5b1 transparent;
+      }
+      [data-testid="stSelectbox"] div[data-baseweb="select"]
+      > div > div:first-child::-webkit-scrollbar {
+        height:5px;
+      }
+      [data-testid="stSelectbox"] div[data-baseweb="select"]
+      > div > div:first-child::-webkit-scrollbar-thumb {
+        background:#9fb5b1; border-radius:999px;
+      }
       [data-testid="stSelectbox"] div[data-baseweb="select"] span {
-        white-space:normal !important; overflow:visible !important; text-overflow:clip !important;
-        overflow-wrap:anywhere;
+        display:inline-block; min-width:max-content; white-space:nowrap !important;
+        overflow:visible !important; text-overflow:clip !important;
       }
       div[role="option"] {white-space:normal !important; overflow-wrap:anywhere;}
     </style>
@@ -311,7 +323,7 @@ if not datasets:
     st.info("没有可分析的数据。请先到“数据浏览”页面刷新索引。")
     st.stop()
 
-left_panel, screen_panel, right_panel = st.columns([1.2, 4.55, 2.05], gap="medium")
+left_panel, screen_panel, right_panel = st.columns([1.15, 5.8, 2.0], gap="medium")
 
 with left_panel:
     with st.container(border=True):
@@ -527,11 +539,12 @@ if is_paired:
             )
         st.divider()
         render_paired_output(output, show_table=False)
-        metric_columns = st.columns(4)
-        metric_columns[0].metric("分析通道", "8 + 2")
-        metric_columns[1].metric("每种状态", f"{cycle_count} 周波")
-        metric_columns[2].metric("采样率", f"{sample_rate_8:g} Hz")
-        metric_columns[3].metric("单周波", f"{context['cycle_points']:,} 点")
+        with st.container(key="analysis_summary"):
+            metric_columns = st.columns(4)
+            metric_columns[0].metric("分析通道", "8 + 2")
+            metric_columns[1].metric("每种状态", f"{cycle_count} 周波")
+            metric_columns[2].metric("采样率", f"{sample_rate_8:g} Hz")
+            metric_columns[3].metric("单周波", f"{context['cycle_points']:,} 点")
 
     safe_stem = f"{selected_8['id']}_{selected_2['id']}_{analysis_type}"
     job_dataset_id = selected_8["id"]
@@ -691,11 +704,12 @@ else:
     with screen_placeholder.container(border=True):
         st.markdown('<div class="screen-label">分析结果</div>', unsafe_allow_html=True)
         render_analysis_output(output, show_table=False)
-        metric_columns = st.columns(4)
-        metric_columns[0].metric("当前通道", selected_channel_label.split(" · ")[-1])
-        metric_columns[1].metric("分析点数", f"{end - start:,}")
-        metric_columns[2].metric("采样率", f"{sample_rate:g} Hz")
-        metric_columns[3].metric("分析时长", f"{(end - start) / sample_rate:.6g} s")
+        with st.container(key="analysis_summary"):
+            metric_columns = st.columns(4)
+            metric_columns[0].metric("当前通道", selected_channel_label.split(" · ")[-1])
+            metric_columns[1].metric("分析点数", f"{end - start:,}")
+            metric_columns[2].metric("采样率", f"{sample_rate:g} Hz")
+            metric_columns[3].metric("分析时长", f"{(end - start) / sample_rate:.6g} s")
     with file_info_placeholder.container():
         st.divider()
         st.caption("当前数据")

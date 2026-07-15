@@ -30,7 +30,7 @@ def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000)
         title=output.title,
         xaxis_title=output.x_label,
         yaxis_title=output.y_label,
-        height=610,
+        height=680,
         margin={"l": 55, "r": 25, "t": 65, "b": 50},
         hovermode="x unified",
         **WHITE_LAYOUT,
