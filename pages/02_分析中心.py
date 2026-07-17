@@ -299,13 +299,15 @@ st.markdown(
       [role="listbox"]::-webkit-scrollbar-thumb {
         background:#789792; border-radius:999px;
       }
-      div[role="option"] {
-        min-width:max-content !important; width:max-content !important;
+      [role="option"] {
+        min-width:100% !important; width:max-content !important;
+        max-width:none !important;
         white-space:nowrap !important;
       }
-      div[role="option"] > div {
-        min-width:max-content !important; overflow:visible !important;
+      [role="option"] * {
+        max-width:none !important; overflow:visible !important;
         text-overflow:clip !important; white-space:nowrap !important;
+        flex-shrink:0 !important;
       }
     </style>
     """,
