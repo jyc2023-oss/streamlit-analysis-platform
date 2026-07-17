@@ -289,7 +289,8 @@ export default function(component) {
     };
 
     const nativeClickHandler = (event) => {
-        if (event.button !== 0 || event.target.closest(".modebar")) return;
+        const target = event.target instanceof Element ? event.target : null;
+        if (event.button !== 0 || target?.closest(".modebar")) return;
         window.setTimeout(() => {
             if (!plot || performance.now() - lastPlotlyClick < 180) return;
             const xaxis = plot._fullLayout?.xaxis;
@@ -308,7 +309,7 @@ export default function(component) {
             plot.removeListener("plotly_click", clickHandler);
             plot.removeListener("plotly_relayout", relayoutHandler);
             plot.removeListener("plotly_afterplot", afterPlotHandler);
-            plot.removeEventListener("click", nativeClickHandler);
+            plot.removeEventListener("click", nativeClickHandler, true);
         }
         removeOverlay();
         plot = null;
@@ -324,7 +325,7 @@ export default function(component) {
         plot.on("plotly_click", clickHandler);
         plot.on("plotly_relayout", relayoutHandler);
         plot.on("plotly_afterplot", afterPlotHandler);
-        plot.addEventListener("click", nativeClickHandler);
+        plot.addEventListener("click", nativeClickHandler, true);
         plot.style.cursor = "crosshair";
         scheduleDraw();
     };

@@ -48,7 +48,7 @@ CHANNEL_LABELS_8 = ["5m", "10m", "20m", "40m", "80m", "120m", "160m", "背景支
 CHANNEL_LABELS_2 = ["电弧发生处", "2m主干"]
 ALL_ANALYSIS_TYPES = {**ANALYSIS_TYPES, **PAIRED_ANALYSIS_TYPES}
 USE_CURRENT_FOLDER = "__USE_CURRENT_FOLDER__"
-FFT_CYCLE_COUNT = 5
+FFT_CYCLE_OPTIONS = (1, 5)
 
 
 @st.cache_data(show_spinner=False, ttl=600)
@@ -131,7 +131,7 @@ def compute_fft_cycle_preview(
     if first_output is None:
         raise ValueError("没有可用于 FFT 的通道。")
     return AnalysisOutput(
-        "5 周波多通道 FFT 幅值谱",
+        f"{len(starts)} 周波多通道 FFT 幅值谱",
         first_output.x,
         first_output.y,
         "频率 (Hz)",
@@ -325,7 +325,7 @@ def build_cycle_selection_figure(
 
 
 def build_fft_cycle_selection_figure(
-    context: dict[str, Any]
+    context: dict[str, Any], cycle_count: int
 ) -> go.Figure:
     figure = go.Figure()
     colors = ["#087f78", "#e05b49", "#2563eb", "#9467bd", "#d97706", "#059669"]
@@ -340,7 +340,7 @@ def build_fft_cycle_selection_figure(
     figure.update_xaxes(title_text="时间 (s)", gridcolor="#dce7e5")
     figure.update_yaxes(title_text="幅值", gridcolor="#dce7e5")
     figure.update_layout(
-        title="FFT 周波选择（可先缩放，再连续点击 5 个周波）",
+        title=f"FFT 周波选择（可先缩放，再连续点击 {cycle_count} 个周波）",
         height=470,
         margin={"l": 70, "r": 20, "t": 65, "b": 50},
         paper_bgcolor="#fbfdfc",
@@ -720,7 +720,7 @@ else:
                 label_visibility="collapsed",
                 key=f"workbench_channel_fft_{channel_key}",
             ) or [list(channel_options)[0]]
-            st.caption("可同时选择多个通道；所有通道共用同一组 5 个周波并叠加显示。")
+            st.caption("可同时选择多个通道；所有通道共用同一组所选周波并叠加显示。")
         else:
             selected_channel_labels = [
                 st.pills(
@@ -763,6 +763,7 @@ else:
         st.error("所选通道没有足够的采样点。")
         st.stop()
 
+    fft_cycle_count = FFT_CYCLE_OPTIONS[-1]
     with st.expander("分析区间与算法参数", expanded=False):
         range_columns = st.columns(3)
         default_length = (
@@ -803,7 +804,7 @@ else:
         )
         parameters: dict[str, Any] = {}
         if analysis_type in {"fft", "power_spectrum"}:
-            frequency_columns = st.columns(3)
+            frequency_columns = st.columns(4 if analysis_type == "fft" else 3)
             parameters["min_frequency"] = frequency_columns[0].number_input(
                 "最小频率 (Hz)", 0.0, sample_rate / 2, 0.0, key=f"min_freq_{analysis_type}"
             )
@@ -817,6 +818,14 @@ else:
             if analysis_type == "fft":
                 parameters["detrend"] = frequency_columns[2].checkbox(
                     "去除直流分量", value=True, key="fft_detrend"
+                )
+                fft_cycle_count = int(
+                    frequency_columns[3].selectbox(
+                        "FFT 周波数量",
+                        FFT_CYCLE_OPTIONS,
+                        index=len(FFT_CYCLE_OPTIONS) - 1,
+                        key=f"fft_cycle_count_{analysis_channel_scope}",
+                    )
                 )
             else:
                 parameters["segment_length"] = frequency_columns[2].selectbox(
@@ -849,7 +858,7 @@ else:
     with screen_placeholder.container(border=True):
         if analysis_type == "fft":
             st.markdown(
-                '<div class="screen-label">选择 5 个周波并计算 FFT</div>',
+                f'<div class="screen-label">选择 {fft_cycle_count} 个周波并计算 FFT</div>',
                 unsafe_allow_html=True,
             )
             with st.spinner("正在读取波形并识别 50 Hz 周波……"):
@@ -869,10 +878,10 @@ else:
                     end,
                 )
             starts = [int(item) for item in context["starts"]]
-            if len(starts) < FFT_CYCLE_COUNT:
+            if len(starts) < fft_cycle_count:
                 st.error(
                     f"所选区间仅识别到 {len(starts)} 个完整周波，"
-                    f"至少需要 {FFT_CYCLE_COUNT} 个，请扩大分析区间。"
+                    f"至少需要 {fft_cycle_count} 个，请扩大分析区间。"
                 )
                 st.stop()
 
@@ -884,7 +893,7 @@ else:
                 )
 
             selection_scope = (
-                f"fft_{analysis_channel_scope}_{start}_{end}_{sample_rate:g}"
+                f"fft_{analysis_channel_scope}_{start}_{end}_{sample_rate:g}_{fft_cycle_count}"
             ).replace("/", "_")
             selection_key = f"fft_cycles_{selection_scope}"
             picker_key = f"fft_cycle_picker_{selection_scope}"
@@ -892,7 +901,7 @@ else:
                 st.session_state[selection_key] = []
             st.session_state[selection_key] = [
                 item for item in st.session_state[selection_key] if item in starts
-            ][:FFT_CYCLE_COUNT]
+            ][:fft_cycle_count]
 
             def accept_fft_cycle_picker() -> None:
                 component_state = st.session_state.get(picker_key, {})
@@ -903,14 +912,14 @@ else:
                     payload.get("noarc"),
                     payload.get("arc"),
                     starts,
-                    FFT_CYCLE_COUNT,
+                    fft_cycle_count,
                 )
                 if normalized is not None:
                     st.session_state[selection_key] = normalized[0]
 
             chart_key = f"fft_cycle_chart_{selection_scope}"
             st.plotly_chart(
-                build_fft_cycle_selection_figure(context),
+                build_fft_cycle_selection_figure(context, fft_cycle_count),
                 key=chart_key,
                 width="stretch",
                 config={"scrollZoom": True, "displaylogo": False},
@@ -922,28 +931,28 @@ else:
                 sample_rate,
                 st.session_state[selection_key],
                 [],
-                FFT_CYCLE_COUNT,
+                fft_cycle_count,
                 key=picker_key,
                 on_applied_change=accept_fft_cycle_picker,
                 single_mode=True,
                 axis_count=1,
             )
             selected_fft_starts = st.multiselect(
-                f"精确列表选择（请选择 {FFT_CYCLE_COUNT} 个）",
+                f"精确列表选择（请选择 {fft_cycle_count} 个）",
                 starts,
-                max_selections=FFT_CYCLE_COUNT,
+                max_selections=fft_cycle_count,
                 format_func=format_fft_cycle,
                 key=selection_key,
             )
             st.caption(
-                f"已选择 {len(selected_fft_starts)}/{FFT_CYCLE_COUNT} 个周波。"
+                f"已选择 {len(selected_fft_starts)}/{fft_cycle_count} 个周波。"
                 "图上连续点选后需点击“确认并分析”。"
             )
-            if len(selected_fft_starts) != FFT_CYCLE_COUNT:
-                st.info(f"请从波形上或精确列表中选满 {FFT_CYCLE_COUNT} 个周波。")
+            if len(selected_fft_starts) != fft_cycle_count:
+                st.info(f"请从波形上或精确列表中选满 {fft_cycle_count} 个周波。")
                 st.stop()
             try:
-                with st.spinner("正在拼接 5 个周波并计算 FFT 幅值谱……"):
+                with st.spinner(f"正在拼接 {fft_cycle_count} 个周波并计算 FFT 幅值谱……"):
                     output = compute_fft_cycle_preview(
                         fft_channel_refs,
                         sample_rate,
@@ -954,7 +963,7 @@ else:
             except Exception as exc:
                 st.error(f"无法生成 FFT 幅值谱：{exc}")
                 st.stop()
-            analysis_points = FFT_CYCLE_COUNT * context["cycle_points"]
+            analysis_points = fft_cycle_count * context["cycle_points"]
             analysis_duration = analysis_points / sample_rate
             st.divider()
         else:
@@ -988,7 +997,7 @@ else:
             )
             metric_columns[1].metric(
                 "分析范围",
-                f"{FFT_CYCLE_COUNT} 周波" if analysis_type == "fft" else f"{analysis_points:,} 点",
+                f"{fft_cycle_count} 周波" if analysis_type == "fft" else f"{analysis_points:,} 点",
             )
             metric_columns[2].metric("采样率", f"{sample_rate:g} Hz")
             metric_columns[3].metric("分析时长", f"{analysis_duration:.6g} s")
@@ -1023,7 +1032,7 @@ else:
                     }
                     for label, dataset, selected_channel in channel_selections
                 ],
-                "cycle_count": FFT_CYCLE_COUNT,
+                "cycle_count": fft_cycle_count,
                 "cycle_starts": selected_fft_starts,
                 "cycle_points": context["cycle_points"],
             }
