@@ -75,7 +75,11 @@ def render_figure_bytes(
     if isinstance(output, PairedAnalysisOutput):
         return _render_paired_figure_bytes(output, file_format)
     figure, axis = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
-    if output.kind == "bar":
+    if output.series:
+        for label, x_values, y_values in output.series:
+            axis.plot(x_values, y_values, linewidth=0.9, label=label)
+        axis.legend(fontsize=8)
+    elif output.kind == "bar":
         width = float(output.x[1] - output.x[0]) * 0.85 if output.x.size > 1 else 0.8
         axis.bar(output.x, output.y, width=width, color="#2563eb")
     else:

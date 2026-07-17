@@ -124,6 +124,7 @@ export default function(component) {
     let dirty = false;
     let submitting = false;
     let drawFrame = null;
+    let lastPlotlyClick = 0;
 
     if (singleMode) {
         root.querySelector(".cycle-picker__label").textContent = "周波选择";
@@ -249,9 +250,7 @@ export default function(component) {
         return nearest;
     };
 
-    const clickHandler = (event) => {
-        const point = event?.points?.[0];
-        const start = nearestStart(Number(point?.x));
+    const applyStart = (start) => {
         if (start === null) return;
         if (mode === "remove") {
             noarc = noarc.filter(value => value !== start);
@@ -283,6 +282,24 @@ export default function(component) {
         scheduleDraw();
     };
 
+    const clickHandler = (event) => {
+        lastPlotlyClick = performance.now();
+        const point = event?.points?.[0];
+        applyStart(nearestStart(Number(point?.x)));
+    };
+
+    const nativeClickHandler = (event) => {
+        if (event.button !== 0 || event.target.closest(".modebar")) return;
+        window.setTimeout(() => {
+            if (!plot || performance.now() - lastPlotlyClick < 180) return;
+            const xaxis = plot._fullLayout?.xaxis;
+            if (!xaxis || typeof xaxis.p2l !== "function") return;
+            const bounds = plot.getBoundingClientRect();
+            const pixel = event.clientX - bounds.left - xaxis._offset;
+            applyStart(nearestStart(xaxis.p2l(pixel)));
+        }, 80);
+    };
+
     const relayoutHandler = () => scheduleDraw();
     const afterPlotHandler = () => scheduleDraw();
 
@@ -291,6 +308,7 @@ export default function(component) {
             plot.removeListener("plotly_click", clickHandler);
             plot.removeListener("plotly_relayout", relayoutHandler);
             plot.removeListener("plotly_afterplot", afterPlotHandler);
+            plot.removeEventListener("click", nativeClickHandler);
         }
         removeOverlay();
         plot = null;
@@ -306,6 +324,7 @@ export default function(component) {
         plot.on("plotly_click", clickHandler);
         plot.on("plotly_relayout", relayoutHandler);
         plot.on("plotly_afterplot", afterPlotHandler);
+        plot.addEventListener("click", nativeClickHandler);
         plot.style.cursor = "crosshair";
         scheduleDraw();
     };

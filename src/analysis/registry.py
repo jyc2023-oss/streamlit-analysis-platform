@@ -21,6 +21,7 @@ class AnalysisOutput:
     y_label: str
     kind: str
     table: pd.DataFrame
+    series: list[tuple[str, np.ndarray, np.ndarray]] | None = None
 
 
 def _finite(values: np.ndarray) -> np.ndarray:

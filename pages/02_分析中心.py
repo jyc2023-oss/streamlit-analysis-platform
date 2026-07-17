@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
@@ -13,6 +14,7 @@ from plotly.subplots import make_subplots
 from src.analysis import (
     ANALYSIS_TYPES,
     PAIRED_ANALYSIS_TYPES,
+    AnalysisOutput,
     PairedChannelCycles,
     detect_cycle_starts,
     run_analysis,
@@ -71,41 +73,73 @@ def compute_preview(
 
 @st.cache_data(show_spinner=False, ttl=600)
 def load_fft_cycle_context(
-    dataset_id: int,
-    modified_at: str,
-    channel: str,
+    channel_refs: tuple[tuple[int, str, str, str], ...],
     sample_rate: float,
     start: int,
     end: int,
 ) -> dict[str, Any]:
-    del modified_at
-    values, _ = load_channel(dataset_id, channel, start, end)
-    relative_starts = detect_cycle_starts(values, sample_rate, len(values))
-    indices, sampled = downsample(values, 40_000)
+    reference_id, _modified_at, reference_channel, _label = channel_refs[0]
+    reference, _ = load_channel(reference_id, reference_channel, start, end)
+    relative_starts = detect_cycle_starts(reference, sample_rate, len(reference))
+    traces = []
+    for dataset_id, _modified_at, channel, label in channel_refs:
+        values = (
+            reference
+            if (dataset_id, channel) == (reference_id, reference_channel)
+            else load_channel(dataset_id, channel, start, end)[0]
+        )
+        indices, sampled = downsample(values, 40_000)
+        traces.append(
+            {
+                "label": label,
+                "time": (start + indices).astype(np.float64) / sample_rate,
+                "values": sampled,
+            }
+        )
     return {
         "starts": [start + int(item) for item in relative_starts],
         "cycle_points": int(round(sample_rate / 50.0)),
-        "time": (start + indices).astype(np.float64) / sample_rate,
-        "values": sampled,
+        "traces": traces,
     }
 
 
 @st.cache_data(show_spinner=False, ttl=600)
 def compute_fft_cycle_preview(
-    dataset_id: int,
-    modified_at: str,
-    channel: str,
+    channel_refs: tuple[tuple[int, str, str, str], ...],
     sample_rate: float,
     starts: tuple[int, ...],
     cycle_points: int,
     parameters_json: str,
 ):
-    del modified_at
-    cycles = [
-        load_channel(dataset_id, channel, start, start + cycle_points)[0] for start in starts
-    ]
-    values = np.concatenate(cycles)
-    return run_analysis("fft", values, sample_rate, json.loads(parameters_json))
+    parameters = json.loads(parameters_json)
+    series = []
+    tables = []
+    first_output = None
+    for dataset_id, _modified_at, channel, label in channel_refs:
+        cycles = [
+            load_channel(dataset_id, channel, start, start + cycle_points)[0]
+            for start in starts
+        ]
+        output = run_analysis("fft", np.concatenate(cycles), sample_rate, parameters)
+        first_output = first_output or output
+        series.append((label, output.x, output.y))
+        tables.append(
+            pd.DataFrame(
+                {"通道": label, "频率_Hz": output.x, "幅值": output.y}
+            )
+        )
+    if first_output is None:
+        raise ValueError("没有可用于 FFT 的通道。")
+    return AnalysisOutput(
+        "5 周波多通道 FFT 幅值谱",
+        first_output.x,
+        first_output.y,
+        "频率 (Hz)",
+        "幅值",
+        "line",
+        pd.concat(tables, ignore_index=True),
+        series,
+    )
 
 
 @st.cache_data(show_spinner=False, ttl=600)
@@ -291,16 +325,18 @@ def build_cycle_selection_figure(
 
 
 def build_fft_cycle_selection_figure(
-    context: dict[str, Any], channel_label: str
+    context: dict[str, Any]
 ) -> go.Figure:
     figure = go.Figure()
-    figure.add_scattergl(
-        x=context["time"],
-        y=context["values"],
-        mode="lines",
-        line={"color": "#087f78", "width": 0.9},
-        name=channel_label,
-    )
+    colors = ["#087f78", "#e05b49", "#2563eb", "#9467bd", "#d97706", "#059669"]
+    for index, trace in enumerate(context["traces"]):
+        figure.add_scattergl(
+            x=trace["time"],
+            y=trace["values"],
+            mode="lines",
+            line={"color": colors[index % len(colors)], "width": 0.9},
+            name=trace["label"],
+        )
     figure.update_xaxes(title_text="时间 (s)", gridcolor="#dce7e5")
     figure.update_yaxes(title_text="幅值", gridcolor="#dce7e5")
     figure.update_layout(
@@ -311,7 +347,9 @@ def build_fft_cycle_selection_figure(
         plot_bgcolor="#fbfdfc",
         font={"color": "#173f3b"},
         hovermode="x",
-        showlegend=False,
+        hoverdistance=-1,
+        clickmode="event+select",
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
     )
     return figure
 
@@ -673,22 +711,54 @@ else:
         channel_key = "_".join(
             str(item["id"]) for item in (selected_8, selected_2, selected_other) if item
         )
-        selected_channel_label = (
-            st.pills(
+        if analysis_type == "fft":
+            selected_channel_labels = st.pills(
                 "通道",
                 list(channel_options),
-                default=list(channel_options)[0],
-                selection_mode="single",
+                default=[list(channel_options)[0]],
+                selection_mode="multi",
                 label_visibility="collapsed",
-                key=f"workbench_channel_{channel_key}",
-            )
-            or list(channel_options)[0]
-        )
+                key=f"workbench_channel_fft_{channel_key}",
+            ) or [list(channel_options)[0]]
+            st.caption("可同时选择多个通道；所有通道共用同一组 5 个周波并叠加显示。")
+        else:
+            selected_channel_labels = [
+                st.pills(
+                    "通道",
+                    list(channel_options),
+                    default=list(channel_options)[0],
+                    selection_mode="single",
+                    label_visibility="collapsed",
+                    key=f"workbench_channel_{channel_key}",
+                )
+                or list(channel_options)[0]
+            ]
 
-    selected_dataset, channel = channel_options[selected_channel_label]
+    channel_selections = [
+        (label, *channel_options[label]) for label in selected_channel_labels
+    ]
+    selected_channel_label = " + ".join(selected_channel_labels)
+    _primary_label, selected_dataset, channel = channel_selections[0]
     metadata = selected_dataset["metadata"]
-    total_samples = channel_length(selected_dataset, channel)
-    detected_rate = metadata.get("sample_rate")
+    total_samples = min(
+        channel_length(dataset, selected_channel)
+        for _label, dataset, selected_channel in channel_selections
+    )
+    detected_rates = [
+        float(rate)
+        for _label, dataset, _channel in channel_selections
+        if (rate := dataset["metadata"].get("sample_rate"))
+    ]
+    if detected_rates and any(
+        not np.isclose(rate, detected_rates[0]) for rate in detected_rates[1:]
+    ):
+        st.error("所选通道的采样率不一致，无法共用同一组周波。")
+        st.stop()
+    detected_rate = detected_rates[0] if detected_rates else None
+    analysis_channel_scope = "_".join(
+        f"{dataset['id']}-{selected_channel}"
+        for _label, dataset, selected_channel in channel_selections
+    ).replace("/", "_")
     if total_samples < 2:
         st.error("所选通道没有足够的采样点。")
         st.stop()
@@ -697,7 +767,7 @@ else:
         range_columns = st.columns(3)
         default_length = (
             total_samples
-            if analysis_type == "waveform"
+            if analysis_type in {"waveform", "fft"}
             else min(
                 total_samples,
                 settings.max_analysis_samples,
@@ -710,7 +780,7 @@ else:
                 0,
                 total_samples - 1,
                 0,
-                key=f"workbench_start_{analysis_type}_{selected_dataset['id']}_{channel}",
+                key=f"workbench_start_{analysis_type}_{analysis_channel_scope}",
             )
         )
         end = int(
@@ -719,7 +789,7 @@ else:
                 start + 1,
                 total_samples,
                 max(start + 1, min(total_samples, start + default_length)),
-                key=f"workbench_end_{analysis_type}_{selected_dataset['id']}_{channel}",
+                key=f"workbench_end_{analysis_type}_{analysis_channel_scope}",
             )
         )
         sample_rate = float(
@@ -728,7 +798,7 @@ else:
                 min_value=0.001,
                 value=float(detected_rate or 1_000_000.0),
                 format="%.3f",
-                key=f"workbench_rate_{selected_dataset['id']}",
+                key=f"workbench_rate_{analysis_channel_scope}",
             )
         )
         parameters: dict[str, Any] = {}
@@ -770,7 +840,7 @@ else:
             )
             parameters["level"] = wavelet_columns[1].number_input("分解层数", 1, 8, 5)
 
-    if analysis_type != "waveform" and end - start > settings.max_analysis_samples:
+    if analysis_type not in {"waveform", "fft"} and end - start > settings.max_analysis_samples:
         st.error(f"单次最多分析 {settings.max_analysis_samples:,} 个采样点，请缩小区间。")
         st.stop()
     selected_fft_starts: list[int] = []
@@ -783,10 +853,17 @@ else:
                 unsafe_allow_html=True,
             )
             with st.spinner("正在读取波形并识别 50 Hz 周波……"):
+                fft_channel_refs = tuple(
+                    (
+                        dataset["id"],
+                        dataset["modified_at"],
+                        selected_channel,
+                        label,
+                    )
+                    for label, dataset, selected_channel in channel_selections
+                )
                 context = load_fft_cycle_context(
-                    selected_dataset["id"],
-                    selected_dataset["modified_at"],
-                    channel,
+                    fft_channel_refs,
                     sample_rate,
                     start,
                     end,
@@ -807,7 +884,7 @@ else:
                 )
 
             selection_scope = (
-                f"fft_{selected_dataset['id']}_{channel}_{start}_{end}_{sample_rate:g}"
+                f"fft_{analysis_channel_scope}_{start}_{end}_{sample_rate:g}"
             ).replace("/", "_")
             selection_key = f"fft_cycles_{selection_scope}"
             picker_key = f"fft_cycle_picker_{selection_scope}"
@@ -833,7 +910,7 @@ else:
 
             chart_key = f"fft_cycle_chart_{selection_scope}"
             st.plotly_chart(
-                build_fft_cycle_selection_figure(context, selected_channel_label),
+                build_fft_cycle_selection_figure(context),
                 key=chart_key,
                 width="stretch",
                 config={"scrollZoom": True, "displaylogo": False},
@@ -868,9 +945,7 @@ else:
             try:
                 with st.spinner("正在拼接 5 个周波并计算 FFT 幅值谱……"):
                     output = compute_fft_cycle_preview(
-                        selected_dataset["id"],
-                        selected_dataset["modified_at"],
-                        channel,
+                        fft_channel_refs,
                         sample_rate,
                         tuple(selected_fft_starts),
                         context["cycle_points"],
@@ -903,7 +978,14 @@ else:
         render_analysis_output(output, show_table=False)
         with st.container(key="analysis_summary"):
             metric_columns = st.columns(4)
-            metric_columns[0].metric("当前通道", selected_channel_label.split(" · ")[-1])
+            metric_columns[0].metric(
+                "当前通道",
+                (
+                    f"{len(selected_channel_labels)} 个通道"
+                    if analysis_type == "fft"
+                    else selected_channel_label.split(" · ")[-1]
+                ),
+            )
             metric_columns[1].metric(
                 "分析范围",
                 f"{FFT_CYCLE_COUNT} 周波" if analysis_type == "fft" else f"{analysis_points:,} 点",
@@ -918,9 +1000,9 @@ else:
             unsafe_allow_html=True,
         )
         st.caption(f"{metadata.get('channels_count', '?')} 通道 · {total_samples:,} 点")
-        st.caption(f"当前：{channel}")
+        st.caption(f"当前：{selected_channel_label}")
 
-    safe_stem = f"{selected_dataset['id']}_{channel}_{analysis_type}".replace("/", "_")
+    safe_stem = f"{analysis_channel_scope}_{analysis_type}".replace("/", "_")
     job_dataset_id = selected_dataset["id"]
     job_parameters = {
         "channel": channel,
@@ -933,6 +1015,14 @@ else:
     if analysis_type == "fft":
         job_parameters.update(
             {
+                "channels": [
+                    {
+                        "dataset_id": dataset["id"],
+                        "channel": selected_channel,
+                        "label": label,
+                    }
+                    for label, dataset, selected_channel in channel_selections
+                ],
                 "cycle_count": FFT_CYCLE_COUNT,
                 "cycle_starts": selected_fft_starts,
                 "cycle_points": context["cycle_points"],
@@ -940,7 +1030,7 @@ else:
         )
     detail = {
         "文件": selected_dataset["relative_path"],
-        "通道": selected_channel_label,
+        "通道": selected_channel_labels,
         "分析方法": definition["label"],
         "采样区间": [start, end],
         "选中周波": selected_fft_starts if analysis_type == "fft" else None,

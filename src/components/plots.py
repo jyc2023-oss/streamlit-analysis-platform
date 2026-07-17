@@ -16,7 +16,18 @@ WHITE_LAYOUT = {
 
 def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000) -> go.Figure:
     figure = go.Figure()
-    if output.kind == "bar":
+    if output.series:
+        colors = ["#087f78", "#e05b49", "#2563eb", "#9467bd", "#d97706", "#059669"]
+        for index, (label, x_values, y_values) in enumerate(output.series):
+            step = max(1, len(x_values) // max_line_points)
+            figure.add_scattergl(
+                x=x_values[::step],
+                y=y_values[::step],
+                mode="lines",
+                line={"color": colors[index % len(colors)], "width": 1.25},
+                name=label,
+            )
+    elif output.kind == "bar":
         figure.add_bar(x=output.x, y=output.y, marker_color="#0f766e")
     else:
         step = max(1, len(output.x) // max_line_points)
@@ -33,6 +44,7 @@ def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000)
         height=680,
         margin={"l": 55, "r": 25, "t": 65, "b": 50},
         hovermode="x unified",
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
         **WHITE_LAYOUT,
         xaxis={"gridcolor": "#dce7e5", "zerolinecolor": "#bdcfcc"},
         yaxis={"gridcolor": "#dce7e5", "zerolinecolor": "#bdcfcc"},
