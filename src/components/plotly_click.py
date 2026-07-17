@@ -111,9 +111,11 @@ export default function(component) {
     const maximum = Number(data.maximum);
     const cyclePoints = Number(data.cyclePoints);
     const sampleRate = Number(data.sampleRate);
+    const singleMode = Boolean(data.singleMode);
+    const axisCount = Math.max(1, Number(data.axisCount ?? 4));
     let noarc = [...new Set((data.initialNoarc ?? []).map(Number))]
         .filter(value => validSet.has(value)).slice(0, maximum);
-    let arc = [...new Set((data.initialArc ?? []).map(Number))]
+    let arc = singleMode ? [] : [...new Set((data.initialArc ?? []).map(Number))]
         .filter(value => validSet.has(value) && !noarc.includes(value)).slice(0, maximum);
     let mode = "noarc";
     let plot = null;
@@ -122,6 +124,14 @@ export default function(component) {
     let dirty = false;
     let submitting = false;
     let drawFrame = null;
+
+    if (singleMode) {
+        root.querySelector(".cycle-picker__label").textContent = "周波选择";
+        const noarcButton = root.querySelector('[data-mode="noarc"]');
+        const arcButton = root.querySelector('[data-mode="arc"]');
+        noarcButton.textContent = "选择";
+        arcButton.hidden = true;
+    }
 
     const setMessage = (text, kind = "") => {
         message.textContent = text;
@@ -132,8 +142,12 @@ export default function(component) {
         modeButtons.forEach(button => {
             button.dataset.active = String(button.dataset.mode === mode);
         });
-        status.textContent = `无弧 ${noarc.length}/${maximum} · 有弧 ${arc.length}/${maximum}`;
-        const ready = noarc.length === maximum && arc.length === maximum;
+        status.textContent = singleMode
+            ? `已选择 ${noarc.length}/${maximum}`
+            : `无弧 ${noarc.length}/${maximum} · 有弧 ${arc.length}/${maximum}`;
+        const ready = singleMode
+            ? noarc.length === maximum
+            : noarc.length === maximum && arc.length === maximum;
         applyButton.textContent = ready ? "确认并分析" : "保存当前选择";
         applyButton.disabled = submitting || !dirty;
         if (ready) {
@@ -203,12 +217,12 @@ export default function(component) {
         plot.style.position = "relative";
         plot.appendChild(overlay);
         for (const start of noarc) {
-            for (let axis = 1; axis <= 4; axis += 1) {
+            for (let axis = 1; axis <= axisCount; axis += 1) {
                 addBand(overlay, start, "rgba(37, 99, 235, 0.24)", axis);
             }
         }
         for (const start of arc) {
-            for (let axis = 1; axis <= 4; axis += 1) {
+            for (let axis = 1; axis <= axisCount; axis += 1) {
                 addBand(overlay, start, "rgba(220, 38, 38, 0.24)", axis);
             }
         }
@@ -382,6 +396,8 @@ def render_cycle_picker(
     maximum: int,
     key: str,
     on_applied_change: Callable[[], None],
+    single_mode: bool = False,
+    axis_count: int = 4,
 ) -> Any:
     """Render a no-rerun browser-side picker for detected waveform cycles."""
     return _cycle_picker(
@@ -393,6 +409,8 @@ def render_cycle_picker(
             "initialNoarc": initial_noarc,
             "initialArc": initial_arc,
             "maximum": maximum,
+            "singleMode": single_mode,
+            "axisCount": axis_count,
         },
         key=key,
         on_applied_change=on_applied_change,

@@ -46,6 +46,7 @@ CHANNEL_LABELS_8 = ["5m", "10m", "20m", "40m", "80m", "120m", "160m", "背景支
 CHANNEL_LABELS_2 = ["电弧发生处", "2m主干"]
 ALL_ANALYSIS_TYPES = {**ANALYSIS_TYPES, **PAIRED_ANALYSIS_TYPES}
 USE_CURRENT_FOLDER = "__USE_CURRENT_FOLDER__"
+FFT_CYCLE_COUNT = 5
 
 
 @st.cache_data(show_spinner=False, ttl=600)
@@ -66,6 +67,45 @@ def compute_preview(
         parameters["max_output_points"] = 40_000
         parameters["time_offset"] = start / sample_rate
     return run_analysis(analysis_type, values, sample_rate, parameters)
+
+
+@st.cache_data(show_spinner=False, ttl=600)
+def load_fft_cycle_context(
+    dataset_id: int,
+    modified_at: str,
+    channel: str,
+    sample_rate: float,
+    start: int,
+    end: int,
+) -> dict[str, Any]:
+    del modified_at
+    values, _ = load_channel(dataset_id, channel, start, end)
+    relative_starts = detect_cycle_starts(values, sample_rate, len(values))
+    indices, sampled = downsample(values, 40_000)
+    return {
+        "starts": [start + int(item) for item in relative_starts],
+        "cycle_points": int(round(sample_rate / 50.0)),
+        "time": (start + indices).astype(np.float64) / sample_rate,
+        "values": sampled,
+    }
+
+
+@st.cache_data(show_spinner=False, ttl=600)
+def compute_fft_cycle_preview(
+    dataset_id: int,
+    modified_at: str,
+    channel: str,
+    sample_rate: float,
+    starts: tuple[int, ...],
+    cycle_points: int,
+    parameters_json: str,
+):
+    del modified_at
+    cycles = [
+        load_channel(dataset_id, channel, start, start + cycle_points)[0] for start in starts
+    ]
+    values = np.concatenate(cycles)
+    return run_analysis("fft", values, sample_rate, json.loads(parameters_json))
 
 
 @st.cache_data(show_spinner=False, ttl=600)
@@ -246,6 +286,32 @@ def build_cycle_selection_figure(
         font={"color": "#173f3b"},
         hovermode="x unified",
         legend={"orientation": "h", "y": 1.02},
+    )
+    return figure
+
+
+def build_fft_cycle_selection_figure(
+    context: dict[str, Any], channel_label: str
+) -> go.Figure:
+    figure = go.Figure()
+    figure.add_scattergl(
+        x=context["time"],
+        y=context["values"],
+        mode="lines",
+        line={"color": "#087f78", "width": 0.9},
+        name=channel_label,
+    )
+    figure.update_xaxes(title_text="时间 (s)", gridcolor="#dce7e5")
+    figure.update_yaxes(title_text="幅值", gridcolor="#dce7e5")
+    figure.update_layout(
+        title="FFT 周波选择（可先缩放，再连续点击 5 个周波）",
+        height=470,
+        margin={"l": 70, "r": 20, "t": 65, "b": 50},
+        paper_bgcolor="#fbfdfc",
+        plot_bgcolor="#fbfdfc",
+        font={"color": "#173f3b"},
+        hovermode="x",
+        showlegend=False,
     )
     return figure
 
@@ -707,32 +773,143 @@ else:
     if analysis_type != "waveform" and end - start > settings.max_analysis_samples:
         st.error(f"单次最多分析 {settings.max_analysis_samples:,} 个采样点，请缩小区间。")
         st.stop()
-    try:
-        with st.spinner(f"正在生成{definition['label']}……"):
-            output = compute_preview(
-                selected_dataset["id"],
-                selected_dataset["modified_at"],
-                channel,
-                start,
-                end,
-                sample_rate,
-                analysis_type,
-                json.dumps(parameters, ensure_ascii=False, sort_keys=True),
-            )
-    except Exception as exc:
-        with screen_placeholder.container(border=True):
-            st.error(f"无法生成分析图：{exc}")
-        st.stop()
-
+    selected_fft_starts: list[int] = []
+    analysis_points = end - start
+    analysis_duration = analysis_points / sample_rate
     with screen_placeholder.container(border=True):
+        if analysis_type == "fft":
+            st.markdown(
+                '<div class="screen-label">选择 5 个周波并计算 FFT</div>',
+                unsafe_allow_html=True,
+            )
+            with st.spinner("正在读取波形并识别 50 Hz 周波……"):
+                context = load_fft_cycle_context(
+                    selected_dataset["id"],
+                    selected_dataset["modified_at"],
+                    channel,
+                    sample_rate,
+                    start,
+                    end,
+                )
+            starts = [int(item) for item in context["starts"]]
+            if len(starts) < FFT_CYCLE_COUNT:
+                st.error(
+                    f"所选区间仅识别到 {len(starts)} 个完整周波，"
+                    f"至少需要 {FFT_CYCLE_COUNT} 个，请扩大分析区间。"
+                )
+                st.stop()
+
+            def format_fft_cycle(cycle_start: int) -> str:
+                return (
+                    f"周波 {starts.index(cycle_start) + 1:03d} · "
+                    f"{cycle_start / sample_rate:.6f}–"
+                    f"{(cycle_start + context['cycle_points']) / sample_rate:.6f} s"
+                )
+
+            selection_scope = (
+                f"fft_{selected_dataset['id']}_{channel}_{start}_{end}_{sample_rate:g}"
+            ).replace("/", "_")
+            selection_key = f"fft_cycles_{selection_scope}"
+            picker_key = f"fft_cycle_picker_{selection_scope}"
+            if selection_key not in st.session_state:
+                st.session_state[selection_key] = []
+            st.session_state[selection_key] = [
+                item for item in st.session_state[selection_key] if item in starts
+            ][:FFT_CYCLE_COUNT]
+
+            def accept_fft_cycle_picker() -> None:
+                component_state = st.session_state.get(picker_key, {})
+                payload = component_state.get("applied") if component_state else None
+                if not isinstance(payload, dict):
+                    return
+                normalized = normalize_cycle_selection(
+                    payload.get("noarc"),
+                    payload.get("arc"),
+                    starts,
+                    FFT_CYCLE_COUNT,
+                )
+                if normalized is not None:
+                    st.session_state[selection_key] = normalized[0]
+
+            chart_key = f"fft_cycle_chart_{selection_scope}"
+            st.plotly_chart(
+                build_fft_cycle_selection_figure(context, selected_channel_label),
+                key=chart_key,
+                width="stretch",
+                config={"scrollZoom": True, "displaylogo": False},
+            )
+            render_cycle_picker(
+                chart_key,
+                starts,
+                context["cycle_points"],
+                sample_rate,
+                st.session_state[selection_key],
+                [],
+                FFT_CYCLE_COUNT,
+                key=picker_key,
+                on_applied_change=accept_fft_cycle_picker,
+                single_mode=True,
+                axis_count=1,
+            )
+            selected_fft_starts = st.multiselect(
+                f"精确列表选择（请选择 {FFT_CYCLE_COUNT} 个）",
+                starts,
+                max_selections=FFT_CYCLE_COUNT,
+                format_func=format_fft_cycle,
+                key=selection_key,
+            )
+            st.caption(
+                f"已选择 {len(selected_fft_starts)}/{FFT_CYCLE_COUNT} 个周波。"
+                "图上连续点选后需点击“确认并分析”。"
+            )
+            if len(selected_fft_starts) != FFT_CYCLE_COUNT:
+                st.info(f"请从波形上或精确列表中选满 {FFT_CYCLE_COUNT} 个周波。")
+                st.stop()
+            try:
+                with st.spinner("正在拼接 5 个周波并计算 FFT 幅值谱……"):
+                    output = compute_fft_cycle_preview(
+                        selected_dataset["id"],
+                        selected_dataset["modified_at"],
+                        channel,
+                        sample_rate,
+                        tuple(selected_fft_starts),
+                        context["cycle_points"],
+                        json.dumps(parameters, ensure_ascii=False, sort_keys=True),
+                    )
+            except Exception as exc:
+                st.error(f"无法生成 FFT 幅值谱：{exc}")
+                st.stop()
+            analysis_points = FFT_CYCLE_COUNT * context["cycle_points"]
+            analysis_duration = analysis_points / sample_rate
+            st.divider()
+        else:
+            try:
+                with st.spinner(f"正在生成{definition['label']}……"):
+                    output = compute_preview(
+                        selected_dataset["id"],
+                        selected_dataset["modified_at"],
+                        channel,
+                        start,
+                        end,
+                        sample_rate,
+                        analysis_type,
+                        json.dumps(parameters, ensure_ascii=False, sort_keys=True),
+                    )
+            except Exception as exc:
+                st.error(f"无法生成分析图：{exc}")
+                st.stop()
+
         st.markdown('<div class="screen-label">分析结果</div>', unsafe_allow_html=True)
         render_analysis_output(output, show_table=False)
         with st.container(key="analysis_summary"):
             metric_columns = st.columns(4)
             metric_columns[0].metric("当前通道", selected_channel_label.split(" · ")[-1])
-            metric_columns[1].metric("分析点数", f"{end - start:,}")
+            metric_columns[1].metric(
+                "分析范围",
+                f"{FFT_CYCLE_COUNT} 周波" if analysis_type == "fft" else f"{analysis_points:,} 点",
+            )
             metric_columns[2].metric("采样率", f"{sample_rate:g} Hz")
-            metric_columns[3].metric("分析时长", f"{(end - start) / sample_rate:.6g} s")
+            metric_columns[3].metric("分析时长", f"{analysis_duration:.6g} s")
     with file_info_placeholder.container():
         st.divider()
         st.caption("当前数据")
@@ -753,11 +930,20 @@ else:
         "sample_rate": sample_rate,
         **parameters,
     }
+    if analysis_type == "fft":
+        job_parameters.update(
+            {
+                "cycle_count": FFT_CYCLE_COUNT,
+                "cycle_starts": selected_fft_starts,
+                "cycle_points": context["cycle_points"],
+            }
+        )
     detail = {
         "文件": selected_dataset["relative_path"],
         "通道": selected_channel_label,
         "分析方法": definition["label"],
         "采样区间": [start, end],
+        "选中周波": selected_fft_starts if analysis_type == "fft" else None,
         "采样率": sample_rate,
         "算法参数": parameters,
     }
