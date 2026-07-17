@@ -188,21 +188,10 @@ def choose_dataset_folder(
         )
         if selected == USE_CURRENT_FOLDER:
             break
-        safe_selected = html.escape(selected.strip())
-        st.markdown(
-            f'<div class="folder-level-scroll" title="{safe_selected}">'
-            f"{safe_selected}</div>",
-            unsafe_allow_html=True,
-        )
         selected_parts = (*selected_parts, selected)
     if selected_parts:
         breadcrumb = " / ".join(part.strip() for part in selected_parts)
-        safe_breadcrumb = html.escape(breadcrumb)
-        st.markdown(
-            f'<div class="folder-breadcrumb" title="{safe_breadcrumb}">'
-            f"当前位置：{safe_breadcrumb}</div>",
-            unsafe_allow_html=True,
-        )
+        st.caption(f"当前位置：{breadcrumb}")
     return selected_parts
 
 
@@ -293,59 +282,31 @@ st.markdown(
       }
       .channel-caption {color:#607474; font-size:.88rem; margin-top:-.4rem;}
       .full-file-name, .file-info-name {
-        color:#607474; font-size:.78rem; line-height:1.45; margin:-.25rem 0 .65rem;
-      }
-      .full-file-name, .folder-breadcrumb, .folder-level-scroll {
-        overflow-x:scroll; overflow-y:hidden; padding-bottom:.35rem;
-        scrollbar-color:#789792 #e4ecea; scrollbar-width:thin; white-space:nowrap;
-      }
-      .full-file-name::-webkit-scrollbar, .folder-breadcrumb::-webkit-scrollbar,
-      .folder-level-scroll::-webkit-scrollbar {
-        height:6px;
-      }
-      .full-file-name::-webkit-scrollbar-track, .folder-breadcrumb::-webkit-scrollbar-track,
-      .folder-level-scroll::-webkit-scrollbar-track {
-        background:#e4ecea; border-radius:999px;
-      }
-      .full-file-name::-webkit-scrollbar-thumb, .folder-breadcrumb::-webkit-scrollbar-thumb,
-      .folder-level-scroll::-webkit-scrollbar-thumb {
-        background:#789792; border-radius:999px;
-      }
-      .folder-level-scroll {
-        color:#607474; font-size:.78rem; line-height:1.35; margin:-.5rem 0 .5rem;
-      }
-      .folder-breadcrumb {
-        color:#718582; font-size:.82rem; line-height:1.5; margin:.1rem 0 .65rem;
+        color:#607474; font-size:.78rem; line-height:1.45; overflow-wrap:anywhere;
+        margin:-.25rem 0 .65rem;
       }
       [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-        min-height:3.55rem; height:auto;
+        min-height:3.15rem; height:auto;
       }
-      [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:first-child {
-        min-width:0 !important; overflow-x:scroll !important; overflow-y:hidden !important;
-        padding-bottom:.22rem; scrollbar-color:#789792 #e4ecea; scrollbar-width:thin;
+      [role="listbox"] {
+        overflow-x:scroll !important; overflow-y:auto !important;
+        scrollbar-color:#789792 #e4ecea; scrollbar-gutter:stable; scrollbar-width:thin;
       }
-      [data-testid="stSelectbox"] div[data-baseweb="select"]
-      > div > div:first-child > div {
-        flex:0 0 auto !important; max-width:none !important; min-width:max-content !important;
-        overflow:visible !important; text-overflow:clip !important; white-space:nowrap !important;
-      }
-      [data-testid="stSelectbox"] div[data-baseweb="select"]
-      > div > div:first-child::-webkit-scrollbar {
-        height:6px;
-      }
-      [data-testid="stSelectbox"] div[data-baseweb="select"]
-      > div > div:first-child::-webkit-scrollbar-thumb {
-        background:#789792; border-radius:999px;
-      }
-      [data-testid="stSelectbox"] div[data-baseweb="select"]
-      > div > div:first-child::-webkit-scrollbar-track {
+      [role="listbox"]::-webkit-scrollbar {height:8px; width:8px;}
+      [role="listbox"]::-webkit-scrollbar-track {
         background:#e4ecea; border-radius:999px;
       }
-      [data-testid="stSelectbox"] div[data-baseweb="select"] span {
-        display:inline-block; min-width:max-content; white-space:nowrap !important;
-        overflow:visible !important; text-overflow:clip !important;
+      [role="listbox"]::-webkit-scrollbar-thumb {
+        background:#789792; border-radius:999px;
       }
-      div[role="option"] {white-space:normal !important; overflow-wrap:anywhere;}
+      div[role="option"] {
+        min-width:max-content !important; width:max-content !important;
+        white-space:nowrap !important;
+      }
+      div[role="option"] > div {
+        min-width:max-content !important; overflow:visible !important;
+        text-overflow:clip !important; white-space:nowrap !important;
+      }
     </style>
     """,
     unsafe_allow_html=True,
