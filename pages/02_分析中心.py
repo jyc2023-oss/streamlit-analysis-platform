@@ -942,10 +942,12 @@ else:
                 fft_cycle_count,
                 key=picker_key,
                 on_applied_change=accept_fft_cycle_picker,
+                single_mode=True,
+                axis_count=1,
             )
             st.caption(
-                "周波点击完全复用原来的无弧/有弧选择器：请选择“无弧”，"
-                "在图中点选周波，再点击“保存当前选择”或“确认并分析”。"
+                "点击“选择”后在图中点选周波；需要撤销时点击“取消”后再点对应周波。"
+                "选满后点击“确认并分析”。"
             )
             selected_fft_starts = st.multiselect(
                 f"精确列表选择（请选择 {fft_cycle_count} 个）",
