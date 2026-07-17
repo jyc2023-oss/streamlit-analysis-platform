@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import math
@@ -897,9 +898,10 @@ else:
                     f"{(cycle_start + context['cycle_points']) / sample_rate:.6f} s"
                 )
 
-            selection_scope = (
-                f"fft_{analysis_channel_scope}_{start}_{end}_{sample_rate:g}_{fft_cycle_count}"
-            ).replace("/", "_")
+            scope_source = (
+                f"{analysis_channel_scope}|{start}|{end}|{sample_rate:g}|{fft_cycle_count}"
+            )
+            selection_scope = f"fft_{hashlib.sha1(scope_source.encode()).hexdigest()[:16]}"
             selection_key = f"fft_cycles_{selection_scope}"
             picker_key = f"fft_cycle_picker_{selection_scope}"
             if selection_key not in st.session_state:
@@ -920,7 +922,8 @@ else:
                     fft_cycle_count,
                 )
                 if normalized is not None:
-                    st.session_state[selection_key] = normalized[0]
+                    combined = list(dict.fromkeys([*normalized[0], *normalized[1]]))
+                    st.session_state[selection_key] = combined[:fft_cycle_count]
 
             chart_key = f"fft_cycle_chart_{selection_scope}"
             st.plotly_chart(
@@ -939,8 +942,10 @@ else:
                 fft_cycle_count,
                 key=picker_key,
                 on_applied_change=accept_fft_cycle_picker,
-                single_mode=True,
-                axis_count=1,
+            )
+            st.caption(
+                "周波点击完全复用原来的无弧/有弧选择器：请选择“无弧”，"
+                "在图中点选周波，再点击“保存当前选择”或“确认并分析”。"
             )
             selected_fft_starts = st.multiselect(
                 f"精确列表选择（请选择 {fft_cycle_count} 个）",
