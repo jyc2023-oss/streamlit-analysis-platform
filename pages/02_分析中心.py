@@ -764,6 +764,19 @@ else:
         st.stop()
 
     fft_cycle_count = FFT_CYCLE_OPTIONS[-1]
+    if analysis_type == "fft":
+        with st.container(border=True):
+            st.markdown("#### FFT 周波数量")
+            fft_cycle_count = int(
+                st.pills(
+                    "选择用于 FFT 计算的周波数量",
+                    FFT_CYCLE_OPTIONS,
+                    default=FFT_CYCLE_OPTIONS[-1],
+                    selection_mode="single",
+                    key=f"fft_cycle_count_{analysis_channel_scope}",
+                )
+                or FFT_CYCLE_OPTIONS[-1]
+            )
     with st.expander("分析区间与算法参数", expanded=False):
         range_columns = st.columns(3)
         default_length = (
@@ -804,7 +817,7 @@ else:
         )
         parameters: dict[str, Any] = {}
         if analysis_type in {"fft", "power_spectrum"}:
-            frequency_columns = st.columns(4 if analysis_type == "fft" else 3)
+            frequency_columns = st.columns(3)
             parameters["min_frequency"] = frequency_columns[0].number_input(
                 "最小频率 (Hz)", 0.0, sample_rate / 2, 0.0, key=f"min_freq_{analysis_type}"
             )
@@ -818,14 +831,6 @@ else:
             if analysis_type == "fft":
                 parameters["detrend"] = frequency_columns[2].checkbox(
                     "去除直流分量", value=True, key="fft_detrend"
-                )
-                fft_cycle_count = int(
-                    frequency_columns[3].selectbox(
-                        "FFT 周波数量",
-                        FFT_CYCLE_OPTIONS,
-                        index=len(FFT_CYCLE_OPTIONS) - 1,
-                        key=f"fft_cycle_count_{analysis_channel_scope}",
-                    )
                 )
             else:
                 parameters["segment_length"] = frequency_columns[2].selectbox(
