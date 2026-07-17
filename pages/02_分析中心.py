@@ -188,6 +188,12 @@ def choose_dataset_folder(
         )
         if selected == USE_CURRENT_FOLDER:
             break
+        safe_selected = html.escape(selected.strip())
+        st.markdown(
+            f'<div class="folder-level-scroll" title="{safe_selected}">'
+            f"{safe_selected}</div>",
+            unsafe_allow_html=True,
+        )
         selected_parts = (*selected_parts, selected)
     if selected_parts:
         breadcrumb = " / ".join(part.strip() for part in selected_parts)
@@ -289,18 +295,24 @@ st.markdown(
       .full-file-name, .file-info-name {
         color:#607474; font-size:.78rem; line-height:1.45; margin:-.25rem 0 .65rem;
       }
-      .full-file-name, .folder-breadcrumb {
+      .full-file-name, .folder-breadcrumb, .folder-level-scroll {
         overflow-x:scroll; overflow-y:hidden; padding-bottom:.35rem;
         scrollbar-color:#789792 #e4ecea; scrollbar-width:thin; white-space:nowrap;
       }
-      .full-file-name::-webkit-scrollbar, .folder-breadcrumb::-webkit-scrollbar {
+      .full-file-name::-webkit-scrollbar, .folder-breadcrumb::-webkit-scrollbar,
+      .folder-level-scroll::-webkit-scrollbar {
         height:6px;
       }
-      .full-file-name::-webkit-scrollbar-track, .folder-breadcrumb::-webkit-scrollbar-track {
+      .full-file-name::-webkit-scrollbar-track, .folder-breadcrumb::-webkit-scrollbar-track,
+      .folder-level-scroll::-webkit-scrollbar-track {
         background:#e4ecea; border-radius:999px;
       }
-      .full-file-name::-webkit-scrollbar-thumb, .folder-breadcrumb::-webkit-scrollbar-thumb {
+      .full-file-name::-webkit-scrollbar-thumb, .folder-breadcrumb::-webkit-scrollbar-thumb,
+      .folder-level-scroll::-webkit-scrollbar-thumb {
         background:#789792; border-radius:999px;
+      }
+      .folder-level-scroll {
+        color:#607474; font-size:.78rem; line-height:1.35; margin:-.5rem 0 .5rem;
       }
       .folder-breadcrumb {
         color:#718582; font-size:.82rem; line-height:1.5; margin:.1rem 0 .65rem;
