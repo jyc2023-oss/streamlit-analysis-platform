@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -18,12 +19,87 @@ def _stable_file(path: Path, seconds: int = 5) -> bool:
     return age >= seconds
 
 
-def scan_datasets(user_id: int | None = None) -> dict[str, int]:
+def _root_for_path(path: Path, roots: tuple[Path, ...]) -> Path | None:
+    resolved = path.resolve()
+    return next((root.resolve() for root in roots if resolved.is_relative_to(root.resolve())), None)
+
+
+def index_dataset(
+    path: Path,
+    require_stable: bool = True,
+    *,
+    connection: sqlite3.Connection | None = None,
+) -> str | None:
+    """Insert or update one supported data file and return its resulting status."""
+    settings = get_settings()
+    path = Path(path)
+    if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        return None
+    try:
+        if not path.is_file():
+            return None
+        root = _root_for_path(path, settings.data_roots)
+        if root is None:
+            return None
+        stat = path.stat()
+    except OSError:
+        return None
+
+    status = "pending"
+    error_message = None
+    metadata: dict[str, Any] = {}
+    if not require_stable or _stable_file(path, settings.auto_index_stable_seconds):
+        try:
+            metadata = read_metadata(path)
+            status = "ready"
+        except Exception as exc:
+            status = "error"
+            error_message = str(exc)[:1000]
+
+    resolved = path.resolve()
+    statement = """INSERT INTO datasets
+            (path, root_path, relative_path, name, extension, size_bytes, modified_at,
+             indexed_at, status, error_message, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+              root_path=excluded.root_path,
+              relative_path=excluded.relative_path,
+              name=excluded.name,
+              extension=excluded.extension,
+              size_bytes=excluded.size_bytes,
+              modified_at=excluded.modified_at,
+              indexed_at=excluded.indexed_at,
+              status=excluded.status,
+              error_message=excluded.error_message,
+              metadata_json=excluded.metadata_json"""
+    values = (
+        str(resolved),
+        str(root),
+        str(resolved.relative_to(root)),
+        path.name,
+        path.suffix.lower(),
+        stat.st_size,
+        datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+        utc_now(),
+        status,
+        error_message,
+        json.dumps(metadata, ensure_ascii=False),
+    )
+    if connection is not None:
+        connection.execute(statement, values)
+    else:
+        with transaction() as own_connection:
+            own_connection.execute(statement, values)
+    return status
+
+
+def scan_datasets(
+    user_id: int | None = None, *, write_audit_log: bool = True
+) -> dict[str, int]:
     settings = get_settings()
     seen = 0
     ready = 0
     failed = 0
-    now = utc_now()
     with transaction() as connection:
         for root in settings.data_roots:
             if not root.exists() or not root.is_dir():
@@ -34,53 +110,15 @@ def scan_datasets(user_id: int | None = None) -> dict[str, int]:
                 if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                     continue
                 seen += 1
-                status = "pending"
-                error_message = None
-                metadata: dict[str, Any] = {}
-                if _stable_file(path):
-                    try:
-                        metadata = read_metadata(path)
-                        status = "ready"
-                        ready += 1
-                    except Exception as exc:
-                        status = "error"
-                        error_message = str(exc)[:1000]
-                        failed += 1
-                stat = path.stat()
-                resolved = path.resolve()
-                connection.execute(
-                    """INSERT INTO datasets
-                    (path, root_path, relative_path, name, extension, size_bytes, modified_at,
-                     indexed_at, status, error_message, metadata_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(path) DO UPDATE SET
-                      root_path=excluded.root_path,
-                      relative_path=excluded.relative_path,
-                      name=excluded.name,
-                      extension=excluded.extension,
-                      size_bytes=excluded.size_bytes,
-                      modified_at=excluded.modified_at,
-                      indexed_at=excluded.indexed_at,
-                      status=excluded.status,
-                      error_message=excluded.error_message,
-                      metadata_json=excluded.metadata_json""",
-                    (
-                        str(resolved),
-                        str(root.resolve()),
-                        str(resolved.relative_to(root.resolve())),
-                        path.name,
-                        path.suffix.lower(),
-                        stat.st_size,
-                        datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
-                        now,
-                        status,
-                        error_message,
-                        json.dumps(metadata, ensure_ascii=False),
-                    ),
-                )
-    audit(
-        "datasets.scanned", user_id=user_id, detail={"seen": seen, "ready": ready, "failed": failed}
-    )
+                status = index_dataset(path, connection=connection)
+                ready += int(status == "ready")
+                failed += int(status == "error")
+    if write_audit_log:
+        audit(
+            "datasets.scanned",
+            user_id=user_id,
+            detail={"seen": seen, "ready": ready, "failed": failed},
+        )
     return {"seen": seen, "ready": ready, "failed": failed}
 
 
@@ -191,3 +229,13 @@ def dataset_counts() -> dict[str, int]:
         counts[row["status"]] = int(row["count"])
         counts["total"] += int(row["count"])
     return counts
+
+
+def dataset_catalog_revision() -> tuple[int, int, str]:
+    """Return a cheap revision token that changes when indexed files change."""
+    with transaction() as connection:
+        row = connection.execute(
+            """SELECT COUNT(*) AS total, COALESCE(MAX(id), 0) AS max_id,
+            COALESCE(MAX(indexed_at), '') AS latest_indexed FROM datasets"""
+        ).fetchone()
+    return int(row["total"]), int(row["max_id"]), str(row["latest_indexed"])

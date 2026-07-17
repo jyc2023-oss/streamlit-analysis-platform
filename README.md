@@ -12,6 +12,7 @@
 - 原始波形、FFT 幅值谱、带通滤波、小波包能量
 - 左侧分析方法、中间绘图大屏、右侧 8/2 通道文件选择器
 - 默认 8+2 业务通道栏，切换方法、文件或通道后自动刷新
+- Linux 文件事件监听：新数据写入稳定后自动加入索引，页面仅在索引变化时更新
 - Welch 功率谱、信号包络以及顶部图片/数据保存
 - 任务参数、算法版本、状态和结果追溯
 - PNG、PDF、CSV、JSON 结果文件
@@ -71,6 +72,9 @@ DATA_ROOT=/srv/acquisition/raw SERVICE_HOST=127.0.0.1 SERVICE_PORT=8501 \
 ```
 
 脚本会安装隔离的 Python 3.12 环境，创建用户级 systemd 服务，并将运行状态保存在代码目录之外。
+部署脚本同时启用 `streamlit-analysis-watcher.service`。监听器递归监控数据目录，
+默认等待文件稳定 5 秒后入库，并每 300 秒补偿扫描一次；这两个间隔可通过
+`AUTO_INDEX_STABLE_SECONDS` 和 `AUTO_INDEX_RECONCILE_SECONDS` 调整。
 
 ## BIN 格式
 

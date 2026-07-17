@@ -61,10 +61,13 @@ MAX_SCAN_FILES=100000
 MAX_PREVIEW_POINTS=5000
 MAX_ANALYSIS_SAMPLES=5000000
 SESSION_IDLE_MINUTES=120
+AUTO_INDEX_STABLE_SECONDS=5
+AUTO_INDEX_RECONCILE_SECONDS=300
 EOF
 chmod 0600 "$APP_ROOT/.env"
 
 UNIT_PATH="$HOME/.config/systemd/user/streamlit-analysis.service"
+WATCH_UNIT_PATH="$HOME/.config/systemd/user/streamlit-analysis-watcher.service"
 cat > "$UNIT_PATH" <<EOF
 [Unit]
 Description=Streamlit Data Analysis Platform
@@ -88,8 +91,32 @@ UMask=0077
 WantedBy=default.target
 EOF
 
+cat > "$WATCH_UNIT_PATH" <<EOF
+[Unit]
+Description=Streamlit Analysis Automatic Dataset Watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$APP_ROOT
+EnvironmentFile=$APP_ROOT/.env
+Environment=MAMBA_ROOT_PREFIX=$MAMBA_ROOT_PREFIX
+ExecStart=$MICROMAMBA run -n $ENV_NAME python scripts/watch_datasets.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+UMask=0077
+
+[Install]
+WantedBy=default.target
+EOF
+
 systemctl --user daemon-reload
 systemctl --user enable streamlit-analysis.service
+systemctl --user enable streamlit-analysis-watcher.service
+systemctl --user restart streamlit-analysis-watcher.service
 systemctl --user restart streamlit-analysis.service
 
 HEALTH_HOST="$SERVICE_HOST"
@@ -106,3 +133,4 @@ curl -fsS "http://$HEALTH_HOST:$SERVICE_PORT/_stcore/health"
 printf '\nAPP_ROOT=%s\nSTATE_ROOT=%s\nDATA_ROOT=%s\nHOST=%s\nPORT=%s\n' \
   "$APP_ROOT" "$STATE_ROOT" "$DATA_ROOT" "$SERVICE_HOST" "$SERVICE_PORT"
 systemctl --user --no-pager --full status streamlit-analysis.service | head -n 20
+systemctl --user --no-pager --full status streamlit-analysis-watcher.service | head -n 20

@@ -25,6 +25,7 @@ from src.components.plots import render_analysis_output, render_paired_output
 from src.config import get_settings
 from src.db import init_db
 from src.services.datasets import (
+    dataset_catalog_revision,
     downsample,
     filter_datasets_by_folder,
     folder_choices,
@@ -325,6 +326,21 @@ with title_column:
     )
 action_placeholder = action_column.empty()
 
+
+@st.fragment(run_every="3s")
+def watch_dataset_catalog() -> None:
+    """Refresh the full workbench only when the background index actually changes."""
+    revision = dataset_catalog_revision()
+    state_key = "workbench_dataset_catalog_revision"
+    previous = st.session_state.get(state_key)
+    st.session_state[state_key] = revision
+    if previous is not None and previous != revision:
+        st.cache_data.clear()
+        st.rerun(scope="app")
+
+
+watch_dataset_catalog()
+
 datasets = list_datasets(status="ready")
 if not datasets:
     st.info("没有可分析的数据。请先到“数据浏览”页面刷新索引。")
@@ -369,7 +385,7 @@ with right_panel:
         if other_files:
             with st.expander("其他通道文件"):
                 selected_other = choose_dataset("补充文件", other_files, "workbench_file_other")
-        st.caption("文件来源于服务器数据索引，不会上传或复制原始数据。")
+        st.caption("已开启新文件自动发现；文件不会上传或复制，手动刷新按钮保留为备用。")
         if st.button("刷新文件列表", width="stretch"):
             with st.spinner("正在刷新索引……"):
                 scan_datasets(user["id"])

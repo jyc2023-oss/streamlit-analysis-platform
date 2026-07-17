@@ -39,6 +39,8 @@ class Settings:
     max_preview_points: int
     max_analysis_samples: int
     session_idle_minutes: int
+    auto_index_stable_seconds: int
+    auto_index_reconcile_seconds: int
 
     def create_runtime_dirs(self) -> None:
         for path in (self.app_data_dir, self.result_dir, self.cache_dir, self.temp_dir):
@@ -66,6 +68,8 @@ def get_settings() -> Settings:
         max_preview_points=int(os.getenv("MAX_PREVIEW_POINTS", "5000")),
         max_analysis_samples=int(os.getenv("MAX_ANALYSIS_SAMPLES", "5000000")),
         session_idle_minutes=int(os.getenv("SESSION_IDLE_MINUTES", "120")),
+        auto_index_stable_seconds=int(os.getenv("AUTO_INDEX_STABLE_SECONDS", "5")),
+        auto_index_reconcile_seconds=int(os.getenv("AUTO_INDEX_RECONCILE_SECONDS", "300")),
     )
     settings.create_runtime_dirs()
     return settings
