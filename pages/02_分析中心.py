@@ -191,7 +191,12 @@ def choose_dataset_folder(
         selected_parts = (*selected_parts, selected)
     if selected_parts:
         breadcrumb = " / ".join(part.strip() for part in selected_parts)
-        st.caption(f"当前位置：{breadcrumb}")
+        safe_breadcrumb = html.escape(breadcrumb)
+        st.markdown(
+            f'<div class="folder-breadcrumb" title="{safe_breadcrumb}">'
+            f"当前位置：{safe_breadcrumb}</div>",
+            unsafe_allow_html=True,
+        )
     return selected_parts
 
 
@@ -282,23 +287,47 @@ st.markdown(
       }
       .channel-caption {color:#607474; font-size:.88rem; margin-top:-.4rem;}
       .full-file-name, .file-info-name {
-        color:#607474; font-size:.78rem; line-height:1.45; overflow-wrap:anywhere;
-        margin:-.25rem 0 .65rem;
+        color:#607474; font-size:.78rem; line-height:1.45; margin:-.25rem 0 .65rem;
+      }
+      .full-file-name, .folder-breadcrumb {
+        overflow-x:scroll; overflow-y:hidden; padding-bottom:.35rem;
+        scrollbar-color:#789792 #e4ecea; scrollbar-width:thin; white-space:nowrap;
+      }
+      .full-file-name::-webkit-scrollbar, .folder-breadcrumb::-webkit-scrollbar {
+        height:6px;
+      }
+      .full-file-name::-webkit-scrollbar-track, .folder-breadcrumb::-webkit-scrollbar-track {
+        background:#e4ecea; border-radius:999px;
+      }
+      .full-file-name::-webkit-scrollbar-thumb, .folder-breadcrumb::-webkit-scrollbar-thumb {
+        background:#789792; border-radius:999px;
+      }
+      .folder-breadcrumb {
+        color:#718582; font-size:.82rem; line-height:1.5; margin:.1rem 0 .65rem;
       }
       [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-        min-height:3.15rem; height:auto;
+        min-height:3.55rem; height:auto;
       }
       [data-testid="stSelectbox"] div[data-baseweb="select"] > div > div:first-child {
-        overflow-x:auto !important; overflow-y:hidden !important; scrollbar-width:thin;
-        scrollbar-color:#9fb5b1 transparent;
+        min-width:0 !important; overflow-x:scroll !important; overflow-y:hidden !important;
+        padding-bottom:.22rem; scrollbar-color:#789792 #e4ecea; scrollbar-width:thin;
+      }
+      [data-testid="stSelectbox"] div[data-baseweb="select"]
+      > div > div:first-child > div {
+        flex:0 0 auto !important; max-width:none !important; min-width:max-content !important;
+        overflow:visible !important; text-overflow:clip !important; white-space:nowrap !important;
       }
       [data-testid="stSelectbox"] div[data-baseweb="select"]
       > div > div:first-child::-webkit-scrollbar {
-        height:5px;
+        height:6px;
       }
       [data-testid="stSelectbox"] div[data-baseweb="select"]
       > div > div:first-child::-webkit-scrollbar-thumb {
-        background:#9fb5b1; border-radius:999px;
+        background:#789792; border-radius:999px;
+      }
+      [data-testid="stSelectbox"] div[data-baseweb="select"]
+      > div > div:first-child::-webkit-scrollbar-track {
+        background:#e4ecea; border-radius:999px;
       }
       [data-testid="stSelectbox"] div[data-baseweb="select"] span {
         display:inline-block; min-width:max-content; white-space:nowrap !important;
