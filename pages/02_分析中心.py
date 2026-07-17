@@ -299,8 +299,11 @@ st.markdown(
       [role="listbox"]::-webkit-scrollbar-thumb {
         background:#789792; border-radius:999px;
       }
+      [role="listbox"] > * {
+        min-width:64rem !important;
+      }
       [role="option"] {
-        min-width:100% !important; width:max-content !important;
+        min-width:64rem !important; width:max-content !important;
         max-width:none !important;
         white-space:nowrap !important;
       }
