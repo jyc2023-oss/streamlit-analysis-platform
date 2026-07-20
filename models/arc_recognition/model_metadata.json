@@ -1,0 +1,25 @@
+{
+  "model": "MLPNet",
+  "source_files": 230,
+  "training_samples": 46000,
+  "source_channel": {
+    "file": "116",
+    "physical_channel": 2,
+    "array_index": 1,
+    "legacy_label": "CH1",
+    "web_label": "CH02"
+  },
+  "sample_definition": {
+    "no_arc_interval_seconds": [0, 1],
+    "arc_interval_seconds": [2, 3],
+    "half_wave_ms": 10
+  },
+  "test_metrics": {
+    "accuracy": 0.9789705882352941,
+    "balanced_accuracy": 0.9789705882352941,
+    "precision": 0.9791115033833481,
+    "recall": 0.9788235294117648,
+    "specificity": 0.9791176470588235,
+    "f1": 0.9789674952198854
+  }
+}

@@ -814,28 +814,29 @@ else:
             if not selected_2:
                 st.error("当前文件夹中没有找到116（2通道）文件。")
                 st.stop()
-            ch1_option = next(
+            ch2_option = next(
                 (
                     label
                     for label, (dataset, selected_channel) in channel_options.items()
                     if dataset["id"] == selected_2["id"]
-                    and selected_channel.upper() in {"CH1", "CH01"}
+                    and selected_channel.upper() in {"CH2", "CH02"}
                 ),
                 None,
             )
-            if ch1_option is None:
-                st.error("当前116文件中没有找到CH1通道。")
+            if ch2_option is None:
+                st.error("当前116文件中没有找到第二通道（CH02）。")
                 st.stop()
             selected_channel_labels = st.pills(
                 "通道",
                 list(channel_options),
-                default=[ch1_option],
+                default=[ch2_option],
                 selection_mode="multi",
                 label_visibility="collapsed",
                 key=f"workbench_channel_arc_{channel_key}",
-            ) or [ch1_option]
+            ) or [ch2_option]
             st.caption(
-                "默认使用116文件CH1；可增加其他通道并叠加检测。模型仅使用116/CH1训练，"
+                "默认使用116文件第二通道（旧代码CH1，网页CH02）；可增加其他通道并叠加检测。"
+                "模型仅使用116/CH02训练，"
                 "其他通道结果属于扩展应用。"
             )
         else:
