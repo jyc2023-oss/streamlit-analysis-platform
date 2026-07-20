@@ -177,6 +177,56 @@ def compute_arc_feature_preview(
 
 
 @st.cache_data(show_spinner=False, ttl=600)
+def compute_arc_file_preview(
+    channel_refs: tuple[tuple[int, str, str, str, int], ...],
+    sample_rate: float,
+    parameters_json: str,
+) -> AnalysisOutput:
+    parameters = json.loads(parameters_json)
+    series: list[tuple[str, np.ndarray, np.ndarray]] = []
+    tables: list[pd.DataFrame] = []
+    channel_results: list[dict[str, Any]] = []
+    first_output: AnalysisOutput | None = None
+    for dataset_id, _modified_at, channel, label, total_samples in channel_refs:
+        values, _ = load_channel(dataset_id, channel, 0, total_samples)
+        output = run_analysis("arc_features", values, sample_rate, parameters)
+        first_output = first_output or output
+        series.append((label, output.x, output.y))
+        channel_table = output.table.copy()
+        channel_table.insert(0, "通道", label)
+        tables.append(channel_table)
+        channel_results.append({"label": label, **(output.summary or {})})
+    if first_output is None:
+        raise ValueError("没有可用于电弧识别的通道。")
+    arc_channels = sum(bool(item["folder_is_arc"]) for item in channel_results)
+    folder_is_arc = arc_channels > 0
+    folder_result = "有弧" if folder_is_arc else "无弧"
+    summary = {
+        "folder_is_arc": folder_is_arc,
+        "folder_result": folder_result,
+        "arc_channels": arc_channels,
+        "total_channels": len(channel_results),
+        "arc_halfwaves": sum(int(item["arc_halfwaves"]) for item in channel_results),
+        "total_halfwaves": sum(int(item["total_halfwaves"]) for item in channel_results),
+        "required_arc_halfwaves": int(parameters.get("required_arc_halfwaves", 3)),
+        "probability_threshold": float(parameters.get("probability_threshold", 0.5)),
+        "duration_seconds": max(float(item["duration_seconds"]) for item in channel_results),
+        "channel_results": channel_results,
+    }
+    return AnalysisOutput(
+        f"文件夹判定：{folder_result} · {arc_channels}/{len(channel_results)} 个通道达到标准",
+        first_output.x,
+        first_output.y,
+        "时间 (s)",
+        "有弧概率",
+        "arc_detection",
+        pd.concat(tables, ignore_index=True),
+        series=series,
+        summary=summary,
+    )
+
+
+@st.cache_data(show_spinner=False, ttl=600)
 def load_cycle_context(
     dataset_8_id: int,
     modified_8: str,
@@ -760,7 +810,7 @@ else:
             str(item["id"]) for item in (selected_8, selected_2, selected_other) if item
         )
         if IS_ARC_PAGE:
-            st.markdown("#### 固定识别数据源")
+            st.markdown("#### 识别通道")
             if not selected_2:
                 st.error("当前文件夹中没有找到116（2通道）文件。")
                 st.stop()
@@ -776,9 +826,18 @@ else:
             if ch1_option is None:
                 st.error("当前116文件中没有找到CH1通道。")
                 st.stop()
-            selected_channel_labels = [ch1_option]
-            st.markdown("**116 文件 · CH1 通道 · 全部数据**")
-            st.caption("114文件不参与识别；无需手动选择通道或周波。")
+            selected_channel_labels = st.pills(
+                "通道",
+                list(channel_options),
+                default=[ch1_option],
+                selection_mode="multi",
+                label_visibility="collapsed",
+                key=f"workbench_channel_arc_{channel_key}",
+            ) or [ch1_option]
+            st.caption(
+                "默认使用116文件CH1；可增加其他通道并叠加检测。模型仅使用116/CH1训练，"
+                "其他通道结果属于扩展应用。"
+            )
         else:
             st.markdown("#### 通道选择")
             st.markdown(
@@ -930,7 +989,7 @@ else:
             )
             parameters["level"] = wavelet_columns[1].number_input("分解层数", 1, 8, 5)
         elif analysis_type == "arc_features":
-            st.caption("识别范围固定为116文件CH1通道的全部采样点。")
+            st.caption("每个所选通道都使用自己的全部采样点进行识别。")
             threshold_columns = st.columns(2)
             parameters["probability_threshold"] = float(
                 threshold_columns[0].number_input(
@@ -962,8 +1021,18 @@ else:
         st.error(f"单次最多分析 {settings.max_analysis_samples:,} 个采样点，请缩小区间。")
         st.stop()
     selected_fft_starts: list[int] = []
-    analysis_points = end - start
-    analysis_duration = analysis_points / sample_rate
+    if analysis_type == "arc_features":
+        analysis_points = sum(
+            channel_length(dataset, selected_channel)
+            for _label, dataset, selected_channel in channel_selections
+        )
+        analysis_duration = max(
+            channel_length(dataset, selected_channel)
+            for _label, dataset, selected_channel in channel_selections
+        ) / sample_rate
+    else:
+        analysis_points = end - start
+        analysis_duration = analysis_points / sample_rate
     with screen_placeholder.container(border=True):
         if analysis_type in CYCLE_SELECTION_TYPES:
             st.markdown(
@@ -1097,16 +1166,34 @@ else:
         else:
             try:
                 with st.spinner(f"正在生成{definition['label']}……"):
-                    output = compute_preview(
-                        selected_dataset["id"],
-                        selected_dataset["modified_at"],
-                        channel,
-                        start,
-                        end,
-                        sample_rate,
-                        analysis_type,
-                        json.dumps(parameters, ensure_ascii=False, sort_keys=True),
-                    )
+                    if analysis_type == "arc_features":
+                        arc_channel_refs = tuple(
+                            (
+                                dataset["id"],
+                                dataset["modified_at"],
+                                selected_channel,
+                                label,
+                                channel_length(dataset, selected_channel),
+                            )
+                            for label, dataset, selected_channel in channel_selections
+                        )
+                        output = compute_arc_file_preview(
+                            arc_channel_refs,
+                            sample_rate,
+                            json.dumps(parameters, ensure_ascii=False, sort_keys=True),
+                        )
+                        analysis_duration = float(output.summary["duration_seconds"])
+                    else:
+                        output = compute_preview(
+                            selected_dataset["id"],
+                            selected_dataset["modified_at"],
+                            channel,
+                            start,
+                            end,
+                            sample_rate,
+                            analysis_type,
+                            json.dumps(parameters, ensure_ascii=False, sort_keys=True),
+                        )
             except Exception as exc:
                 st.error(f"无法生成分析图：{exc}")
                 st.stop()
@@ -1119,7 +1206,7 @@ else:
                 "当前通道",
                 (
                     f"{len(selected_channel_labels)} 个通道"
-                    if analysis_type == "fft"
+                    if analysis_type in {"fft", "arc_features"}
                     else selected_channel_label.split(" · ")[-1]
                 ),
             )
@@ -1151,7 +1238,7 @@ else:
         "sample_rate": sample_rate,
         **parameters,
     }
-    if analysis_type in CYCLE_SELECTION_TYPES:
+    if analysis_type in {*CYCLE_SELECTION_TYPES, "arc_features"}:
         job_parameters.update(
             {
                 "channels": [
@@ -1162,11 +1249,16 @@ else:
                     }
                     for label, dataset, selected_channel in channel_selections
                 ],
-                "cycle_count": fft_cycle_count,
-                "cycle_starts": selected_fft_starts,
-                "cycle_points": context["cycle_points"],
             }
         )
+        if analysis_type in CYCLE_SELECTION_TYPES:
+            job_parameters.update(
+                {
+                    "cycle_count": fft_cycle_count,
+                    "cycle_starts": selected_fft_starts,
+                    "cycle_points": context["cycle_points"],
+                }
+            )
     detail = {
         "文件": selected_dataset["relative_path"],
         "通道": selected_channel_labels,

@@ -78,12 +78,14 @@ def render_figure_bytes(
     figure, axis = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
     if output.kind == "arc_detection":
         threshold = float((output.summary or {}).get("probability_threshold", 0.5))
-        arc_mask = output.y >= threshold
-        axis.plot(output.x, output.y, color="#0f766e", linewidth=1.0, label="有弧概率")
-        if np.any(arc_mask):
+        arc_series = output.series or [("有弧概率", output.x, output.y)]
+        for label, x_values, y_values in arc_series:
+            arc_mask = y_values >= threshold
+            (line,) = axis.plot(x_values, y_values, linewidth=1.0, label=label)
+            if not np.any(arc_mask):
+                continue
             axis.scatter(
-                output.x[arc_mask], output.y[arc_mask], color="#dc2626", s=14,
-                label="判为有弧的半波",
+                x_values[arc_mask], y_values[arc_mask], color=line.get_color(), s=12,
             )
         axis.axhline(threshold, color="#dc2626", linestyle="--", alpha=0.8)
         axis.set_ylim(0, 1.02)

@@ -43,15 +43,24 @@ def test_bar_output_with_text_labels_renders_png() -> None:
 
 
 def test_arc_detection_timeline_renders_png() -> None:
+    time = np.asarray([0.005, 0.015, 0.025])
+    first = np.asarray([0.2, 0.9, 0.7])
+    second = np.asarray([0.1, 0.3, 0.8])
     output = AnalysisOutput(
         "文件夹判定：有弧",
-        np.asarray([0.005, 0.015, 0.025]),
-        np.asarray([0.2, 0.9, 0.7]),
+        time,
+        first,
         "时间 (s)",
         "有弧概率",
         "arc_detection",
         pd.DataFrame(),
+        series=[("116 · CH1", time, first), ("114 · CH1", time, second)],
         summary={"probability_threshold": 0.5},
     )
 
+    figure = build_analysis_figure(output)
+    assert [trace.name for trace in figure.data if "达到阈值" not in trace.name] == [
+        "116 · CH1",
+        "114 · CH1",
+    ]
     assert render_figure_bytes(output, "png").startswith(b"\x89PNG")

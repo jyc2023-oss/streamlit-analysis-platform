@@ -19,21 +19,28 @@ def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000)
     if output.kind == "arc_detection":
         summary = output.summary or {}
         threshold = float(summary.get("probability_threshold", 0.5))
-        arc_mask = output.y >= threshold
-        figure.add_scatter(
-            x=output.x,
-            y=output.y,
-            mode="lines",
-            line={"color": "#0f766e", "width": 1.5},
-            name="有弧概率",
-        )
-        if np.any(arc_mask):
+        colors = ["#087f78", "#d97706", "#2563eb", "#9467bd", "#db5b4f", "#059669"]
+        arc_series = output.series or [("有弧概率", output.x, output.y)]
+        for index, (label, x_values, y_values) in enumerate(arc_series):
+            color = colors[index % len(colors)]
+            arc_mask = y_values >= threshold
             figure.add_scatter(
-                x=output.x[arc_mask],
-                y=output.y[arc_mask],
+                x=x_values,
+                y=y_values,
+                mode="lines",
+                line={"color": color, "width": 1.4},
+                name=label,
+            )
+            if not np.any(arc_mask):
+                continue
+            figure.add_scatter(
+                x=x_values[arc_mask],
+                y=y_values[arc_mask],
                 mode="markers",
-                marker={"color": "#dc2626", "size": 7},
-                name="判为有弧的半波",
+                marker={"color": color, "size": 6, "symbol": "circle-open"},
+                name=f"{label} · 达到阈值",
+                legendgroup=label,
+                showlegend=False,
             )
         figure.add_hline(
             y=threshold,
@@ -194,8 +201,9 @@ def render_analysis_output(output: AnalysisOutput, show_table: bool = True) -> N
                 <span class="arc-verdict__eyebrow">文件夹检测完成</span>
                 <strong class="arc-verdict__status">{status_text}</strong>
                 <span class="arc-verdict__detail">
-                  共检测 {summary['total_halfwaves']} 个半波，其中
-                  {summary['arc_halfwaves']} 个达到有弧判定标准。
+                  共检测 {summary.get('total_channels', 1)} 个通道、
+                  {summary['total_halfwaves']} 个半波；其中
+                  {summary.get('arc_channels', int(is_arc))} 个通道达到文件夹判定标准。
                 </span>
               </div>
               <div class="arc-verdict__rule">
@@ -208,8 +216,11 @@ def render_analysis_output(output: AnalysisOutput, show_table: bool = True) -> N
         )
         metrics = st.columns(4)
         metrics[0].metric("文件夹结论", result)
-        metrics[1].metric("有弧半波", f"{summary['arc_halfwaves']} 个")
-        metrics[2].metric("检测半波总数", f"{summary['total_halfwaves']} 个")
+        metrics[1].metric(
+            "达到标准的通道",
+            f"{summary.get('arc_channels', int(is_arc))}/{summary.get('total_channels', 1)}",
+        )
+        metrics[2].metric("有弧半波", f"{summary['arc_halfwaves']} 个")
         metrics[3].metric("完整检测时长", f"{summary['duration_seconds']:.6g} s")
     figure = build_analysis_figure(output)
     st.plotly_chart(figure, width="stretch")
