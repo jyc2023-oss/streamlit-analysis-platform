@@ -1,6 +1,7 @@
 import numpy as np
 
 from src.analysis.arc_features import ArcFeatureConfig, extract_arc_features
+from src.analysis.arc_model import predict_arc
 from src.analysis.paired import (
     PairedChannelCycles,
     detect_cycle_starts,
@@ -130,3 +131,10 @@ def test_arc_feature_extractor_returns_finite_24_dimensions() -> None:
     assert np.isfinite(features).all()
     np.testing.assert_allclose(features[10:17].sum(), 1.0, rtol=1e-10)
     np.testing.assert_allclose(features[17:24].sum(), 1.0, rtol=1e-10)
+
+
+def test_deployed_arc_model_returns_probabilities() -> None:
+    features = np.vstack([np.linspace(0.1, 2.4, 24), np.linspace(2.4, 0.1, 24)])
+    probabilities = predict_arc(features)
+    assert probabilities.shape == (2,)
+    assert np.all((probabilities >= 0) & (probabilities <= 1))

@@ -14,6 +14,7 @@ from src.analysis.arc_features import (
     ArcFeatureConfig,
     extract_arc_features,
 )
+from src.analysis.arc_model import predict_arc
 
 ALGORITHM_VERSION = "0.1.0"
 
@@ -264,10 +265,15 @@ def arc_features(values: np.ndarray, sample_rate: float, params: dict[str, Any])
     config = ArcFeatureConfig(sample_rate=sample_rate)
     matrix = np.vstack([extract_arc_features(item, config) for item in half_waves])
     averages = matrix.mean(axis=0)
+    probabilities = predict_arc(matrix)
+    predictions = probabilities >= 0.5
     table = pd.DataFrame(matrix, columns=FEATURE_NAMES)
+    table.insert(0, "识别结果", np.where(predictions, "有弧", "无弧"))
+    table.insert(0, "有弧概率", probabilities)
     table.insert(0, "半波", [f"半波 {index + 1}" for index in range(len(table))])
     return AnalysisOutput(
-        "24维电弧特征（分类模型尚未加载）",
+        f"电弧识别 · 有弧 {int(predictions.sum())}/{len(predictions)} 个半波 · "
+        f"平均概率 {probabilities.mean():.2%}",
         np.asarray(FEATURE_NAMES),
         averages,
         "特征",
@@ -317,7 +323,7 @@ ANALYSIS_TYPES: dict[str, dict[str, Any]] = {
     "arc_features": {
         "label": "电弧识别",
         "icon": "⚡",
-        "description": "选择周波并提取24维电弧特征；分类模型暂未加载。",
+        "description": "选择周波，提取24维特征并输出每个半波的有弧概率。",
         "runner": arc_features,
     },
 }
