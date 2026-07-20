@@ -76,7 +76,19 @@ def render_figure_bytes(
     if isinstance(output, PairedAnalysisOutput):
         return _render_paired_figure_bytes(output, file_format)
     figure, axis = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
-    if output.series:
+    if output.kind == "arc_detection":
+        threshold = float((output.summary or {}).get("probability_threshold", 0.5))
+        arc_mask = output.y >= threshold
+        axis.plot(output.x, output.y, color="#0f766e", linewidth=1.0, label="有弧概率")
+        if np.any(arc_mask):
+            axis.scatter(
+                output.x[arc_mask], output.y[arc_mask], color="#dc2626", s=14,
+                label="判为有弧的半波",
+            )
+        axis.axhline(threshold, color="#dc2626", linestyle="--", alpha=0.8)
+        axis.set_ylim(0, 1.02)
+        axis.legend(fontsize=8)
+    elif output.series:
         for label, x_values, y_values in output.series:
             axis.plot(x_values, y_values, linewidth=0.9, label=label)
         axis.legend(fontsize=8)

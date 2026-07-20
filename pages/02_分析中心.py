@@ -61,7 +61,7 @@ PAGE_ANALYSIS_TYPES = (
 )
 USE_CURRENT_FOLDER = "__USE_CURRENT_FOLDER__"
 FFT_CYCLE_OPTIONS = (1, 5)
-CYCLE_SELECTION_TYPES = {"fft", "arc_features"}
+CYCLE_SELECTION_TYPES = {"fft"}
 
 
 @st.cache_data(show_spinner=False, ttl=600)
@@ -461,7 +461,7 @@ with title_column:
     render_page_intro(
         "电弧识别工作台" if IS_ARC_PAGE else "数据分析工作台",
         (
-            "选择数据、通道和周波，提取与离线算法完全一致的24维电弧特征。"
+            "进入数据文件夹后，自动使用116文件的CH1全量数据逐半波检测并给出文件夹结论。"
             if IS_ARC_PAGE
             else "选择算法、数据文件与通道，中央画布会同步更新，并可保存图像、数据和完整分析记录。"
         ),
@@ -756,14 +756,35 @@ else:
         st.stop()
 
     with st.container(border=True):
-        st.markdown("#### 通道选择")
-        st.markdown(
-            '<div class="channel-caption">默认按照原设备的 8 通道 + 2 通道顺序排列</div>',
-            unsafe_allow_html=True,
-        )
         channel_key = "_".join(
             str(item["id"]) for item in (selected_8, selected_2, selected_other) if item
         )
+        if IS_ARC_PAGE:
+            st.markdown("#### 固定识别数据源")
+            if not selected_2:
+                st.error("当前文件夹中没有找到116（2通道）文件。")
+                st.stop()
+            ch1_option = next(
+                (
+                    label
+                    for label, (dataset, selected_channel) in channel_options.items()
+                    if dataset["id"] == selected_2["id"]
+                    and selected_channel.upper() in {"CH1", "CH01"}
+                ),
+                None,
+            )
+            if ch1_option is None:
+                st.error("当前116文件中没有找到CH1通道。")
+                st.stop()
+            selected_channel_labels = [ch1_option]
+            st.markdown("**116 文件 · CH1 通道 · 全部数据**")
+            st.caption("114文件不参与识别；无需手动选择通道或周波。")
+        else:
+            st.markdown("#### 通道选择")
+            st.markdown(
+                '<div class="channel-caption">默认按照原设备的 8 通道 + 2 通道顺序排列</div>',
+                unsafe_allow_html=True,
+            )
         if analysis_type == "fft":
             selected_channel_labels = st.pills(
                 "通道",
@@ -774,7 +795,7 @@ else:
                 key=f"workbench_channel_fft_{channel_key}",
             ) or [list(channel_options)[0]]
             st.caption("可同时选择多个通道；所有通道共用同一组所选周波并叠加显示。")
-        else:
+        elif not IS_ARC_PAGE:
             selected_channel_labels = [
                 st.pills(
                     "通道",
@@ -834,7 +855,7 @@ else:
         range_columns = st.columns(3)
         default_length = (
             total_samples
-            if analysis_type in {"waveform", *CYCLE_SELECTION_TYPES}
+            if analysis_type in {"waveform", "arc_features", *CYCLE_SELECTION_TYPES}
             else min(
                 total_samples,
                 settings.max_analysis_samples,
@@ -848,6 +869,7 @@ else:
                 total_samples - 1,
                 0,
                 key=f"workbench_start_{analysis_type}_{analysis_channel_scope}",
+                disabled=analysis_type == "arc_features",
             )
         )
         end = int(
@@ -857,6 +879,7 @@ else:
                 total_samples,
                 max(start + 1, min(total_samples, start + default_length)),
                 key=f"workbench_end_{analysis_type}_{analysis_channel_scope}",
+                disabled=analysis_type == "arc_features",
             )
         )
         sample_rate = float(
@@ -906,9 +929,33 @@ else:
                 "小波", ["db3", "db4", "bior3.1", "sym4", "coif3"]
             )
             parameters["level"] = wavelet_columns[1].number_input("分解层数", 1, 8, 5)
+        elif analysis_type == "arc_features":
+            st.caption("识别范围固定为116文件CH1通道的全部采样点。")
+            threshold_columns = st.columns(2)
+            parameters["probability_threshold"] = float(
+                threshold_columns[0].number_input(
+                    "单个半波的有弧概率阈值",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.5,
+                    step=0.05,
+                )
+            )
+            parameters["required_arc_halfwaves"] = int(
+                threshold_columns[1].number_input(
+                    "文件夹判为有弧所需半波数",
+                    min_value=1,
+                    value=3,
+                    step=1,
+                )
+            )
+
+    if analysis_type == "arc_features":
+        start = 0
+        end = total_samples
 
     range_is_too_large = (
-        analysis_type not in {"waveform", *CYCLE_SELECTION_TYPES}
+        analysis_type not in {"waveform", "arc_features", *CYCLE_SELECTION_TYPES}
         and end - start > settings.max_analysis_samples
     )
     if range_is_too_large:
@@ -1042,7 +1089,7 @@ else:
                             context["cycle_points"],
                         )
             except Exception as exc:
-                st.error(f"无法生成 FFT 幅值谱：{exc}")
+                st.error(f"无法生成{definition['label']}：{exc}")
                 st.stop()
             analysis_points = fft_cycle_count * context["cycle_points"]
             analysis_duration = analysis_points / sample_rate

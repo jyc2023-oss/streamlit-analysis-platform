@@ -40,3 +40,18 @@ def test_bar_output_with_text_labels_renders_png() -> None:
     )
 
     assert render_figure_bytes(output, "png").startswith(b"\x89PNG")
+
+
+def test_arc_detection_timeline_renders_png() -> None:
+    output = AnalysisOutput(
+        "文件夹判定：有弧",
+        np.asarray([0.005, 0.015, 0.025]),
+        np.asarray([0.2, 0.9, 0.7]),
+        "时间 (s)",
+        "有弧概率",
+        "arc_detection",
+        pd.DataFrame(),
+        summary={"probability_threshold": 0.5},
+    )
+
+    assert render_figure_bytes(output, "png").startswith(b"\x89PNG")

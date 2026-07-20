@@ -29,6 +29,7 @@ class AnalysisOutput:
     kind: str
     table: pd.DataFrame
     series: list[tuple[str, np.ndarray, np.ndarray]] | None = None
+    summary: dict[str, Any] | None = None
 
 
 def _finite(values: np.ndarray) -> np.ndarray:
@@ -257,29 +258,43 @@ def arc_features(values: np.ndarray, sample_rate: float, params: dict[str, Any])
     half_points = cycle_points // 2
     if half_points <= 0 or values.size < cycle_points:
         raise ValueError("至少需要一个完整的50 Hz周波。")
-    half_waves = [
-        values[start : start + half_points]
-        for start in range(0, values.size, half_points)
-        if start + half_points <= values.size
-    ]
+    half_starts = np.arange(0, values.size - half_points + 1, half_points, dtype=np.int64)
+    half_waves = [values[start : start + half_points] for start in half_starts]
     config = ArcFeatureConfig(sample_rate=sample_rate)
     matrix = np.vstack([extract_arc_features(item, config) for item in half_waves])
-    averages = matrix.mean(axis=0)
     probabilities = predict_arc(matrix)
-    predictions = probabilities >= 0.5
+    probability_threshold = float(params.get("probability_threshold", 0.5))
+    required_arc_halfwaves = max(1, int(params.get("required_arc_halfwaves", 3)))
+    predictions = probabilities >= probability_threshold
+    arc_count = int(predictions.sum())
+    folder_is_arc = arc_count >= required_arc_halfwaves
+    start_times = half_starts.astype(np.float64) / sample_rate
+    end_times = (half_starts + half_points).astype(np.float64) / sample_rate
+    center_times = (start_times + end_times) / 2
     table = pd.DataFrame(matrix, columns=FEATURE_NAMES)
     table.insert(0, "识别结果", np.where(predictions, "有弧", "无弧"))
     table.insert(0, "有弧概率", probabilities)
-    table.insert(0, "半波", [f"半波 {index + 1}" for index in range(len(table))])
+    table.insert(0, "结束时间_s", end_times)
+    table.insert(0, "开始时间_s", start_times)
+    table.insert(0, "半波序号", np.arange(1, len(table) + 1))
+    folder_result = "有弧" if folder_is_arc else "无弧"
     return AnalysisOutput(
-        f"电弧识别 · 有弧 {int(predictions.sum())}/{len(predictions)} 个半波 · "
-        f"平均概率 {probabilities.mean():.2%}",
-        np.asarray(FEATURE_NAMES),
-        averages,
-        "特征",
-        "平均特征值",
-        "bar",
+        f"文件夹判定：{folder_result} · 检出 {arc_count}/{len(predictions)} 个有弧半波",
+        center_times,
+        probabilities,
+        "时间 (s)",
+        "有弧概率",
+        "arc_detection",
         table,
+        summary={
+            "folder_is_arc": folder_is_arc,
+            "folder_result": folder_result,
+            "arc_halfwaves": arc_count,
+            "total_halfwaves": len(predictions),
+            "required_arc_halfwaves": required_arc_halfwaves,
+            "probability_threshold": probability_threshold,
+            "duration_seconds": values.size / sample_rate,
+        },
     )
 
 
@@ -323,7 +338,7 @@ ANALYSIS_TYPES: dict[str, dict[str, Any]] = {
     "arc_features": {
         "label": "电弧识别",
         "icon": "⚡",
-        "description": "选择周波，提取24维特征并输出每个半波的有弧概率。",
+        "description": "自动读取当前文件夹中116文件的CH1全量数据，逐半波检测并给出文件夹结论。",
         "runner": arc_features,
     },
 }

@@ -1,5 +1,6 @@
 import numpy as np
 
+from src.analysis import registry
 from src.analysis.arc_features import ArcFeatureConfig, extract_arc_features
 from src.analysis.arc_model import predict_arc
 from src.analysis.paired import (
@@ -138,3 +139,31 @@ def test_deployed_arc_model_returns_probabilities() -> None:
     probabilities = predict_arc(features)
     assert probabilities.shape == (2,)
     assert np.all((probabilities >= 0) & (probabilities <= 1))
+
+
+def test_arc_detection_scans_all_halfwaves_and_builds_folder_result(monkeypatch) -> None:
+    monkeypatch.setattr(
+        registry,
+        "extract_arc_features",
+        lambda values, config: np.full(24, float(np.mean(values))),
+    )
+    probabilities = np.asarray([0.1, 0.8, 0.7, 0.2, 0.9, 0.3, 0.4, 0.1])
+    monkeypatch.setattr(registry, "predict_arc", lambda matrix: probabilities)
+
+    output = registry.arc_features(
+        np.arange(80, dtype=np.float64),
+        1_000.0,
+        {
+            "cycle_points": 20,
+            "probability_threshold": 0.5,
+            "required_arc_halfwaves": 3,
+        },
+    )
+
+    assert output.kind == "arc_detection"
+    assert len(output.table) == 8
+    assert output.summary is not None
+    assert output.summary["folder_is_arc"] is True
+    assert output.summary["arc_halfwaves"] == 3
+    assert output.table["开始时间_s"].iloc[0] == 0
+    assert output.table["结束时间_s"].iloc[-1] == 0.08

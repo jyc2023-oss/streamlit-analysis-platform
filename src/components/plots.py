@@ -16,7 +16,33 @@ WHITE_LAYOUT = {
 
 def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000) -> go.Figure:
     figure = go.Figure()
-    if output.series:
+    if output.kind == "arc_detection":
+        summary = output.summary or {}
+        threshold = float(summary.get("probability_threshold", 0.5))
+        arc_mask = output.y >= threshold
+        figure.add_scatter(
+            x=output.x,
+            y=output.y,
+            mode="lines",
+            line={"color": "#0f766e", "width": 1.5},
+            name="有弧概率",
+        )
+        if np.any(arc_mask):
+            figure.add_scatter(
+                x=output.x[arc_mask],
+                y=output.y[arc_mask],
+                mode="markers",
+                marker={"color": "#dc2626", "size": 7},
+                name="判为有弧的半波",
+            )
+        figure.add_hline(
+            y=threshold,
+            line_dash="dash",
+            line_color="#dc2626",
+            annotation_text=f"半波阈值 {threshold:.0%}",
+        )
+        figure.update_yaxes(range=[0, 1.02])
+    elif output.series:
         colors = ["#087f78", "#e05b49", "#2563eb", "#9467bd", "#d97706", "#059669"]
         for index, (label, x_values, y_values) in enumerate(output.series):
             step = max(1, len(x_values) // max_line_points)
@@ -155,6 +181,21 @@ def build_paired_figure(output: PairedAnalysisOutput, max_points: int = 12_000) 
 
 
 def render_analysis_output(output: AnalysisOutput, show_table: bool = True) -> None:
+    if output.kind == "arc_detection" and output.summary:
+        summary = output.summary
+        result = str(summary["folder_result"])
+        message = (
+            f"当前文件夹判定：{result}　｜　"
+            f"有弧半波 {summary['arc_halfwaves']}/{summary['total_halfwaves']}　｜　"
+            f"文件夹判定条件：至少 {summary['required_arc_halfwaves']} 个半波达到 "
+            f"{summary['probability_threshold']:.0%}"
+        )
+        (st.error if summary["folder_is_arc"] else st.success)(message)
+        metrics = st.columns(4)
+        metrics[0].metric("文件夹结论", result)
+        metrics[1].metric("有弧半波", f"{summary['arc_halfwaves']} 个")
+        metrics[2].metric("检测半波总数", f"{summary['total_halfwaves']} 个")
+        metrics[3].metric("完整检测时长", f"{summary['duration_seconds']:.6g} s")
     figure = build_analysis_figure(output)
     st.plotly_chart(figure, width="stretch")
     if show_table:
