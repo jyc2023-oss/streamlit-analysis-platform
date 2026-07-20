@@ -49,6 +49,16 @@ from src.ui import render_page_intro
 CHANNEL_LABELS_8 = ["5m", "10m", "20m", "40m", "80m", "120m", "160m", "背景支路"]
 CHANNEL_LABELS_2 = ["电弧发生处", "2m主干"]
 ALL_ANALYSIS_TYPES = {**ANALYSIS_TYPES, **PAIRED_ANALYSIS_TYPES}
+IS_ARC_PAGE = bool(globals().get("ARC_PAGE_MODE", False))
+PAGE_ANALYSIS_TYPES = (
+    {"arc_features": ALL_ANALYSIS_TYPES["arc_features"]}
+    if IS_ARC_PAGE
+    else {
+        key: value
+        for key, value in ALL_ANALYSIS_TYPES.items()
+        if key != "arc_features"
+    }
+)
 USE_CURRENT_FOLDER = "__USE_CURRENT_FOLDER__"
 FFT_CYCLE_OPTIONS = (1, 5)
 CYCLE_SELECTION_TYPES = {"fft", "arc_features"}
@@ -449,8 +459,12 @@ st.markdown(
 title_column, action_column = st.columns([5, 4], vertical_alignment="center")
 with title_column:
     render_page_intro(
-        "数据分析工作台",
-        "选择算法、数据文件与通道，中央画布会同步更新，并可保存图像、数据和完整分析记录。",
+        "电弧识别工作台" if IS_ARC_PAGE else "数据分析工作台",
+        (
+            "选择数据、通道和周波，提取与离线算法完全一致的24维电弧特征。"
+            if IS_ARC_PAGE
+            else "选择算法、数据文件与通道，中央画布会同步更新，并可保存图像、数据和完整分析记录。"
+        ),
     )
 action_placeholder = action_column.empty()
 
@@ -478,15 +492,19 @@ left_panel, screen_panel, right_panel = st.columns([1.15, 5.8, 2.0], gap="medium
 
 with left_panel:
     with st.container(border=True):
-        st.markdown("#### 分析方法")
-        analysis_type = st.radio(
-            "选择分析方法",
-            list(ALL_ANALYSIS_TYPES),
-            format_func=lambda key: ALL_ANALYSIS_TYPES[key]["label"],
-            label_visibility="collapsed",
-            key="workbench_analysis_type",
-        )
-        definition = ALL_ANALYSIS_TYPES[analysis_type]
+        st.markdown("#### 电弧识别" if IS_ARC_PAGE else "#### 分析方法")
+        if IS_ARC_PAGE:
+            analysis_type = "arc_features"
+            st.markdown("⚡ **24维电弧特征识别**")
+        else:
+            analysis_type = st.radio(
+                "选择分析方法",
+                list(PAGE_ANALYSIS_TYPES),
+                format_func=lambda key: PAGE_ANALYSIS_TYPES[key]["label"],
+                label_visibility="collapsed",
+                key="workbench_analysis_type",
+            )
+        definition = PAGE_ANALYSIS_TYPES[analysis_type]
         st.caption(definition["description"])
         st.divider()
         st.markdown("**操作提示**")

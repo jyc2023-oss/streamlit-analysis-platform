@@ -32,6 +32,9 @@ if user["role"] == "admin":
     pages.append(
         st.Page("pages/04_系统管理.py", title="系统管理", icon=":material/settings:")
     )
+pages.append(
+    st.Page("pages/05_电弧识别.py", title="电弧识别", icon=":material/bolt:")
+)
 
 navigation = st.navigation(pages, position="top")
 render_account_bar(user)
