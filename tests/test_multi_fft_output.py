@@ -59,8 +59,11 @@ def test_arc_detection_timeline_renders_png() -> None:
     )
 
     figure = build_analysis_figure(output)
-    assert [trace.name for trace in figure.data if "达到阈值" not in trace.name] == [
+    assert [trace.name for trace in figure.data if trace.name != "超过阈值"] == [
         "116 · CH1",
         "114 · CH1",
     ]
+    threshold_traces = [trace for trace in figure.data if trace.name == "超过阈值"]
+    assert all(trace.marker.color == "#dc2626" for trace in threshold_traces)
+    assert figure.layout.legend.y < 0
     assert render_figure_bytes(output, "png").startswith(b"\x89PNG")

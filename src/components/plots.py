@@ -37,10 +37,10 @@ def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000)
                 x=x_values[arc_mask],
                 y=y_values[arc_mask],
                 mode="markers",
-                marker={"color": color, "size": 6, "symbol": "circle-open"},
-                name=f"{label} · 达到阈值",
-                legendgroup=label,
-                showlegend=False,
+                marker={"color": "#dc2626", "size": 6, "symbol": "circle"},
+                name="超过阈值",
+                legendgroup="arc-threshold-points",
+                showlegend=index == 0,
             )
         figure.add_hline(
             y=threshold,
@@ -70,14 +70,19 @@ def build_analysis_figure(output: AnalysisOutput, max_line_points: int = 20_000)
             mode="lines",
             line={"color": "#0f766e", "width": 1.4},
         )
+    is_arc_detection = output.kind == "arc_detection"
     figure.update_layout(
-        title=output.title,
+        title="半波检测过程" if is_arc_detection else output.title,
         xaxis_title=output.x_label,
         yaxis_title=output.y_label,
         height=680,
-        margin={"l": 55, "r": 25, "t": 65, "b": 50},
+        margin={"l": 55, "r": 25, "t": 65, "b": 105 if is_arc_detection else 50},
         hovermode="x unified",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+        legend=(
+            {"orientation": "h", "yanchor": "top", "y": -0.14, "xanchor": "left", "x": 0}
+            if is_arc_detection
+            else {"orientation": "h", "yanchor": "bottom", "y": 1.02}
+        ),
         **WHITE_LAYOUT,
         xaxis={"gridcolor": "#dce7e5", "zerolinecolor": "#bdcfcc"},
         yaxis={"gridcolor": "#dce7e5", "zerolinecolor": "#bdcfcc"},

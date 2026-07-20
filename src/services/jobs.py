@@ -81,11 +81,15 @@ def render_figure_bytes(
         arc_series = output.series or [("有弧概率", output.x, output.y)]
         for label, x_values, y_values in arc_series:
             arc_mask = y_values >= threshold
-            (line,) = axis.plot(x_values, y_values, linewidth=1.0, label=label)
+            axis.plot(x_values, y_values, linewidth=1.0, label=label)
             if not np.any(arc_mask):
                 continue
             axis.scatter(
-                x_values[arc_mask], y_values[arc_mask], color=line.get_color(), s=12,
+                x_values[arc_mask],
+                y_values[arc_mask],
+                color="#dc2626",
+                s=12,
+                label="超过阈值" if label == arc_series[0][0] else None,
             )
         axis.axhline(threshold, color="#dc2626", linestyle="--", alpha=0.8)
         axis.set_ylim(0, 1.02)
