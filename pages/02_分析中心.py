@@ -832,7 +832,7 @@ else:
                 default=[ch2_option],
                 selection_mode="multi",
                 label_visibility="collapsed",
-                key=f"workbench_channel_arc_{channel_key}",
+                key=f"workbench_channel_arc_ch02_{channel_key}",
             ) or [ch2_option]
             st.caption(
                 "默认使用116文件第二通道（旧代码CH1，网页CH02）；可增加其他通道并叠加检测。"
