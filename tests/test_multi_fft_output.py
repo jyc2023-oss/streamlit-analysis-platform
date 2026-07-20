@@ -26,3 +26,17 @@ def test_multi_series_output_renders_each_channel() -> None:
 
     assert [trace.name for trace in figure.data] == ["CH01", "CH02"]
     assert render_figure_bytes(output, "png").startswith(b"\x89PNG")
+
+
+def test_bar_output_with_text_labels_renders_png() -> None:
+    output = AnalysisOutput(
+        "电弧识别",
+        np.asarray(["特征一", "特征二"]),
+        np.asarray([0.25, 0.75]),
+        "特征",
+        "平均特征值",
+        "bar",
+        pd.DataFrame(),
+    )
+
+    assert render_figure_bytes(output, "png").startswith(b"\x89PNG")

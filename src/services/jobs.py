@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from src.analysis import AnalysisOutput, PairedAnalysisOutput
 from src.analysis.registry import ALGORITHM_VERSION
@@ -80,7 +81,12 @@ def render_figure_bytes(
             axis.plot(x_values, y_values, linewidth=0.9, label=label)
         axis.legend(fontsize=8)
     elif output.kind == "bar":
-        width = float(output.x[1] - output.x[0]) * 0.85 if output.x.size > 1 else 0.8
+        is_numeric_x = np.issubdtype(output.x.dtype, np.number)
+        width = (
+            float(output.x[1] - output.x[0]) * 0.85
+            if is_numeric_x and output.x.size > 1
+            else 0.8
+        )
         axis.bar(output.x, output.y, width=width, color="#2563eb")
     else:
         axis.plot(output.x, output.y, color="#2563eb", linewidth=0.9)
