@@ -184,13 +184,28 @@ def render_analysis_output(output: AnalysisOutput, show_table: bool = True) -> N
     if output.kind == "arc_detection" and output.summary:
         summary = output.summary
         result = str(summary["folder_result"])
-        message = (
-            f"当前文件夹判定：{result}　｜　"
-            f"有弧半波 {summary['arc_halfwaves']}/{summary['total_halfwaves']}　｜　"
-            f"文件夹判定条件：至少 {summary['required_arc_halfwaves']} 个半波达到 "
-            f"{summary['probability_threshold']:.0%}"
+        is_arc = bool(summary["folder_is_arc"])
+        status_text = "检测到电弧" if is_arc else "未检测到电弧"
+        card_class = "arc-verdict" if is_arc else "arc-verdict arc-verdict--clear"
+        st.html(
+            f"""
+            <section class="{card_class}" aria-label="文件夹电弧检测结论">
+              <div>
+                <span class="arc-verdict__eyebrow">文件夹检测完成</span>
+                <strong class="arc-verdict__status">{status_text}</strong>
+                <span class="arc-verdict__detail">
+                  共检测 {summary['total_halfwaves']} 个半波，其中
+                  {summary['arc_halfwaves']} 个达到有弧判定标准。
+                </span>
+              </div>
+              <div class="arc-verdict__rule">
+                <span>当前判定规则</span>
+                <strong>≥ {summary['required_arc_halfwaves']} 个半波</strong>
+                <small>单半波有弧概率 ≥ {summary['probability_threshold']:.0%}</small>
+              </div>
+            </section>
+            """
         )
-        (st.error if summary["folder_is_arc"] else st.success)(message)
         metrics = st.columns(4)
         metrics[0].metric("文件夹结论", result)
         metrics[1].metric("有弧半波", f"{summary['arc_halfwaves']} 个")

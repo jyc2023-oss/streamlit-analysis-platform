@@ -148,6 +148,70 @@ def render_global_theme() -> None:
             letter-spacing: -0.035em;
         }
 
+        .arc-verdict {
+            align-items: stretch;
+            background: #fffdf8;
+            border: 1px solid #eadfca;
+            border-left: 0.32rem solid #b7791f;
+            border-radius: 0.72rem;
+            display: grid;
+            gap: 1.1rem;
+            grid-template-columns: minmax(0, 1fr) auto;
+            margin: 0.35rem 0 1rem;
+            overflow: hidden;
+            padding: 1rem 1.15rem 1.05rem;
+        }
+        .arc-verdict--clear {
+            background: #f5fbf8;
+            border-color: #cfe4da;
+            border-left-color: var(--app-accent);
+        }
+        .arc-verdict__eyebrow {
+            color: #88601f;
+            display: block;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.09em;
+            margin-bottom: 0.3rem;
+        }
+        .arc-verdict--clear .arc-verdict__eyebrow { color: var(--app-accent-strong); }
+        .arc-verdict__status {
+            color: var(--app-ink);
+            display: block;
+            font-family: "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
+            font-size: clamp(1.45rem, 2vw, 2rem);
+            font-weight: 720;
+            letter-spacing: -0.04em;
+            line-height: 1.1;
+        }
+        .arc-verdict__detail {
+            color: var(--app-muted);
+            display: block;
+            font-size: 0.86rem;
+            line-height: 1.5;
+            margin-top: 0.42rem;
+        }
+        .arc-verdict__rule {
+            align-content: center;
+            border-left: 1px solid #e5dac6;
+            display: grid;
+            min-width: 12.5rem;
+            padding-left: 1.1rem;
+        }
+        .arc-verdict--clear .arc-verdict__rule { border-left-color: #d5e6df; }
+        .arc-verdict__rule span,
+        .arc-verdict__rule small {
+            color: var(--app-muted);
+            font-size: 0.72rem;
+        }
+        .arc-verdict__rule strong {
+            color: var(--app-ink);
+            font-family: "Cascadia Mono", monospace;
+            font-size: 1.05rem;
+            font-variant-numeric: tabular-nums;
+            margin: 0.08rem 0;
+        }
+
         .stButton > button, .stDownloadButton > button,
         [data-testid="stFormSubmitButton"] > button {
             border-color: var(--app-line-strong);
@@ -290,6 +354,13 @@ def render_global_theme() -> None:
             .stMainBlockContainer, .block-container { padding-top: 0.75rem; }
             .account-bar-label { text-align: left !important; }
             .app-wordmark span { display: none; }
+            .arc-verdict { grid-template-columns: 1fr; }
+            .arc-verdict__rule {
+                border-left: 0;
+                border-top: 1px solid #e5dac6;
+                padding-left: 0;
+                padding-top: 0.8rem;
+            }
         }
         </style>
         """
