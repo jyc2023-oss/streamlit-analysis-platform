@@ -32,6 +32,7 @@ from src.services.datasets import (
     downsample,
     filter_datasets_by_folder,
     folder_choices,
+    hydrate_dataset_metadata,
     list_datasets,
     load_channel,
     scan_datasets,
@@ -490,7 +491,7 @@ with right_panel:
         if other_files:
             with st.expander("其他通道文件"):
                 selected_other = choose_dataset("补充文件", other_files, "workbench_file_other")
-        st.caption("已开启新文件自动发现；文件不会上传或复制，手动刷新按钮保留为备用。")
+        st.caption("已开启新文件自动发现；SFTP 文件仅在首次分析时进入临时缓存。")
         if st.button("刷新文件列表", width="stretch"):
             with st.spinner("正在刷新索引……"):
                 scan_datasets(user["id"])
@@ -500,6 +501,17 @@ with right_panel:
 
 with screen_panel:
     screen_placeholder = st.empty()
+
+for pending_dataset in (selected_8, selected_2, selected_other):
+    if pending_dataset and pending_dataset["metadata"].get("metadata_pending"):
+        try:
+            with st.spinner(f"首次读取 {pending_dataset['name']} 的 MAT 元数据……"):
+                hydrate_dataset_metadata(pending_dataset["id"])
+        except Exception as exc:
+            st.error(f"无法读取远程 MAT 文件：{exc}")
+            st.stop()
+        st.cache_data.clear()
+        st.rerun()
 
 is_paired = analysis_type in PAIRED_ANALYSIS_TYPES
 

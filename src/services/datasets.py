@@ -12,6 +12,12 @@ from src.config import get_settings
 from src.db import audit, transaction, utc_now
 from src.parsers import SUPPORTED_EXTENSIONS, read_channel, read_metadata
 from src.services.paths import ensure_allowed_data_path
+from src.services.sftp import (
+    is_remote_uri,
+    materialize_remote_dataset,
+    remote_uri,
+    scan_remote_entries,
+)
 
 
 def _stable_file(path: Path, seconds: int = 5) -> bool:
@@ -113,6 +119,12 @@ def scan_datasets(
                 status = index_dataset(path, connection=connection)
                 ready += int(status == "ready")
                 failed += int(status == "error")
+    remote_result = {"seen": 0, "ready": 0, "failed": 0}
+    if settings.sftp_enabled:
+        remote_result = sync_remote_datasets()
+        seen += remote_result["seen"]
+        ready += remote_result["ready"]
+        failed += remote_result["failed"]
     if write_audit_log:
         audit(
             "datasets.scanned",
@@ -120,6 +132,81 @@ def scan_datasets(
             detail={"seen": seen, "ready": ready, "failed": failed},
         )
     return {"seen": seen, "ready": ready, "failed": failed}
+
+
+def sync_remote_datasets() -> dict[str, int]:
+    """Refresh the SQLite catalog from SFTP without downloading complete data files."""
+    settings = get_settings()
+    if not settings.sftp_enabled:
+        return {"seen": 0, "ready": 0, "failed": 0}
+    root_uri = remote_uri(settings.sftp_remote_root, settings)
+    with transaction() as connection:
+        existing_rows = connection.execute(
+            "SELECT * FROM datasets WHERE root_path = ?", (root_uri,)
+        ).fetchall()
+    known_entries = {
+        row["path"]: {
+            "size_bytes": row["size_bytes"],
+            "modified_at": row["modified_at"],
+            "metadata": json.loads(row["metadata_json"] or "{}"),
+            "error_message": row["error_message"],
+        }
+        for row in existing_rows
+    }
+    entries = scan_remote_entries(settings, known_entries)
+    indexed_at = utc_now()
+    seen_uris = {entry.uri for entry in entries}
+    statement = """INSERT INTO datasets
+        (path, root_path, relative_path, name, extension, size_bytes, modified_at,
+         indexed_at, status, error_message, metadata_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(path) DO UPDATE SET
+          root_path=excluded.root_path,
+          relative_path=excluded.relative_path,
+          name=excluded.name,
+          extension=excluded.extension,
+          size_bytes=excluded.size_bytes,
+          modified_at=excluded.modified_at,
+          indexed_at=CASE
+            WHEN datasets.size_bytes=excluded.size_bytes
+             AND datasets.modified_at=excluded.modified_at
+             AND datasets.status=excluded.status
+            THEN datasets.indexed_at ELSE excluded.indexed_at END,
+          status=excluded.status,
+          error_message=excluded.error_message,
+          metadata_json=CASE
+            WHEN datasets.modified_at=excluded.modified_at
+             AND json_extract(datasets.metadata_json, '$.metadata_pending') IS NULL
+            THEN datasets.metadata_json ELSE excluded.metadata_json END"""
+    with transaction() as connection:
+        for entry in entries:
+            status = "error" if entry.error_message else "ready"
+            connection.execute(
+                statement,
+                (
+                    entry.uri,
+                    entry.root_uri,
+                    entry.relative_path,
+                    entry.name,
+                    entry.extension,
+                    entry.size_bytes,
+                    entry.modified_at,
+                    indexed_at,
+                    status,
+                    entry.error_message,
+                    json.dumps(entry.metadata, ensure_ascii=False),
+                ),
+            )
+        rows = connection.execute(
+            "SELECT path FROM datasets WHERE root_path = ?", (root_uri,)
+        ).fetchall()
+        missing = [row["path"] for row in rows if row["path"] not in seen_uris]
+        connection.executemany(
+            "UPDATE datasets SET status='missing', error_message='远程文件已不存在。' WHERE path=?",
+            ((path,) for path in missing),
+        )
+    failed = sum(entry.error_message is not None for entry in entries)
+    return {"seen": len(entries), "ready": len(entries) - failed, "failed": failed}
 
 
 def list_datasets(search: str = "", status: str | None = None) -> list[dict[str, Any]]:
@@ -156,8 +243,39 @@ def load_channel(
     dataset = get_dataset(dataset_id)
     if not dataset or dataset["status"] != "ready":
         raise ValueError("数据不存在或尚不可用。")
-    path = ensure_allowed_data_path(dataset["path"])
+    path = (
+        materialize_remote_dataset(dataset)
+        if is_remote_uri(str(dataset["path"]))
+        else ensure_allowed_data_path(dataset["path"])
+    )
     return read_channel(path, channel, start, end)
+
+
+def hydrate_dataset_metadata(dataset_id: int) -> dict[str, Any]:
+    """Download a remote MAT file on first use and persist its parsed variables."""
+    dataset = get_dataset(dataset_id)
+    if not dataset or dataset["status"] != "ready":
+        raise ValueError("数据不存在或尚不可用。")
+    if not dataset["metadata"].get("metadata_pending"):
+        return dataset
+    if not is_remote_uri(str(dataset["path"])):
+        return dataset
+    try:
+        local_path = materialize_remote_dataset(dataset)
+        metadata = read_metadata(local_path)
+    except Exception as exc:
+        with transaction() as connection:
+            connection.execute(
+                "UPDATE datasets SET status='error', error_message=?, indexed_at=? WHERE id=?",
+                (str(exc)[:1000], utc_now(), dataset_id),
+            )
+        raise
+    with transaction() as connection:
+        connection.execute(
+            "UPDATE datasets SET metadata_json=?, error_message=NULL, indexed_at=? WHERE id=?",
+            (json.dumps(metadata, ensure_ascii=False), utc_now(), dataset_id),
+        )
+    return get_dataset(dataset_id) or dataset
 
 
 def downsample(values: np.ndarray, max_points: int) -> tuple[np.ndarray, np.ndarray]:

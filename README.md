@@ -44,6 +44,41 @@ DATA_ROOTS=D:\data\collection;E:\other-data
 
 多个目录使用分号分隔。平台只读取 `.mat` 和 `.bin` 文件，并在读取前再次检查文件是否位于允许根目录。
 
+## Windows 算法端读取 SFTP 数据
+
+平台可以只在 Windows 电脑运行算法和网页，通过 SFTP 索引 Linux 数据服务器，不需要映射盘符。
+在本机 `.env` 中配置（不要提交密码或私钥口令）：
+
+```dotenv
+SFTP_ENABLED=true
+SFTP_HOST=192.168.31.201
+SFTP_PORT=22
+SFTP_USERNAME=Inspur
+SFTP_PASSWORD=
+SFTP_PRIVATE_KEY_PATH=C:/Users/你的用户名/.ssh/id_ed25519
+SFTP_REMOTE_ROOT=/data/usershare/test-manager/datas
+SFTP_SYNC_SECONDS=30
+SFTP_CACHE_TTL_HOURS=24
+SFTP_CACHE_MAX_GB=20
+```
+
+启动网页和远程索引进程：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\start-platform.ps1
+```
+
+停止两个进程：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\stop-platform.ps1
+```
+
+远程目录和文件名会写入本地 SQLite 索引。BIN 索引只读取 56 字节文件头；MAT 在首次
+选择时下载并解析。完整原始文件仅在真正分析时进入 `var/cache/sftp` 临时缓存，并按
+`SFTP_CACHE_TTL_HOURS` 和 `SFTP_CACHE_MAX_GB` 自动清理。SFTP 主机密钥默认必须已经存在于
+当前 Windows 用户的 `~/.ssh/known_hosts` 中。
+
 ## 测试
 
 ```powershell

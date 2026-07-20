@@ -41,6 +41,18 @@ class Settings:
     session_idle_minutes: int
     auto_index_stable_seconds: int
     auto_index_reconcile_seconds: int
+    sftp_enabled: bool
+    sftp_host: str
+    sftp_port: int
+    sftp_username: str
+    sftp_password: str
+    sftp_private_key_path: Path | None
+    sftp_private_key_passphrase: str
+    sftp_remote_root: str
+    sftp_sync_seconds: int
+    sftp_cache_ttl_hours: int
+    sftp_cache_max_bytes: int
+    sftp_allow_unknown_host_key: bool
 
     def create_runtime_dirs(self) -> None:
         for path in (self.app_data_dir, self.result_dir, self.cache_dir, self.temp_dir):
@@ -54,6 +66,7 @@ class Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     data_dir = _resolve(os.getenv("APP_DATA_DIR", "./var"))
+    key_value = os.getenv("SFTP_PRIVATE_KEY_PATH", "").strip()
     settings = Settings(
         app_name=os.getenv("APP_NAME", "服务器数据分析平台"),
         app_env=os.getenv("APP_ENV", "development"),
@@ -70,6 +83,21 @@ def get_settings() -> Settings:
         session_idle_minutes=int(os.getenv("SESSION_IDLE_MINUTES", "120")),
         auto_index_stable_seconds=int(os.getenv("AUTO_INDEX_STABLE_SECONDS", "5")),
         auto_index_reconcile_seconds=int(os.getenv("AUTO_INDEX_RECONCILE_SECONDS", "300")),
+        sftp_enabled=os.getenv("SFTP_ENABLED", "false").strip().lower() in {"1", "true", "yes"},
+        sftp_host=os.getenv("SFTP_HOST", "").strip(),
+        sftp_port=int(os.getenv("SFTP_PORT", "22")),
+        sftp_username=os.getenv("SFTP_USERNAME", "").strip(),
+        sftp_password=os.getenv("SFTP_PASSWORD", ""),
+        sftp_private_key_path=_resolve(key_value) if key_value else None,
+        sftp_private_key_passphrase=os.getenv("SFTP_PRIVATE_KEY_PASSPHRASE", ""),
+        sftp_remote_root=os.getenv("SFTP_REMOTE_ROOT", "/").strip() or "/",
+        sftp_sync_seconds=max(5, int(os.getenv("SFTP_SYNC_SECONDS", "30"))),
+        sftp_cache_ttl_hours=max(1, int(os.getenv("SFTP_CACHE_TTL_HOURS", "24"))),
+        sftp_cache_max_bytes=max(1, int(float(os.getenv("SFTP_CACHE_MAX_GB", "20")) * 1024**3)),
+        sftp_allow_unknown_host_key=os.getenv("SFTP_ALLOW_UNKNOWN_HOST_KEY", "false")
+        .strip()
+        .lower()
+        in {"1", "true", "yes"},
     )
     settings.create_runtime_dirs()
     return settings

@@ -10,9 +10,8 @@ HEADER_SIZE = 56
 SAMPLE_DTYPE = np.dtype("<f8")
 
 
-def _parse_header(path: Path) -> dict[str, Any]:
-    with path.open("rb") as handle:
-        header = handle.read(HEADER_SIZE)
+def parse_bin_header(header: bytes, file_size: int) -> dict[str, Any]:
+    """Parse metadata from the fixed header and total file size."""
     if len(header) < HEADER_SIZE:
         raise ValueError("BIN 文件头不足 56 字节。")
     raw_device = header[:32].split(b"\0", 1)[0]
@@ -25,7 +24,7 @@ def _parse_header(path: Path) -> dict[str, Any]:
         raise ValueError(f"无效通道数：{channels}")
     if sample_rate <= 0:
         raise ValueError(f"无效采样率：{sample_rate}")
-    available_values = max(0, path.stat().st_size - HEADER_SIZE) // SAMPLE_DTYPE.itemsize
+    available_values = max(0, file_size - HEADER_SIZE) // SAMPLE_DTYPE.itemsize
     available_samples = available_values // channels
     total_samples = (
         min(declared_samples, available_samples) if declared_samples else available_samples
@@ -40,6 +39,12 @@ def _parse_header(path: Path) -> dict[str, Any]:
         "total_samples": int(total_samples),
         "declared_samples": int(declared_samples),
     }
+
+
+def _parse_header(path: Path) -> dict[str, Any]:
+    with path.open("rb") as handle:
+        header = handle.read(HEADER_SIZE)
+    return parse_bin_header(header, path.stat().st_size)
 
 
 def bin_metadata(path: Path) -> dict[str, Any]:

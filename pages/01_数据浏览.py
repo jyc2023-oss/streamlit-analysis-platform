@@ -10,6 +10,7 @@ from src.db import init_db
 from src.services.datasets import (
     downsample,
     get_dataset,
+    hydrate_dataset_metadata,
     list_datasets,
     load_channel,
     scan_datasets,
@@ -28,6 +29,11 @@ render_page_intro(
 with st.expander("数据源状态", expanded=False):
     for root in settings.data_roots:
         st.write(f"{'可用' if root.exists() else '不可用'} · `{root}`")
+    if settings.sftp_enabled:
+        st.write(
+            f"SFTP · `{settings.sftp_username}@{settings.sftp_host}:"
+            f"{settings.sftp_port}{settings.sftp_remote_root}`"
+        )
 
 toolbar = st.columns([3, 1, 1])
 search = toolbar[0].text_input("搜索文件名或相对路径", placeholder="输入关键字")
@@ -69,6 +75,13 @@ if not ready:
 labels = {f"#{item['id']} · {item['relative_path']}": item["id"] for item in ready}
 selected_label = st.selectbox("选择要预览的数据", list(labels))
 dataset = get_dataset(labels[selected_label])
+if dataset["metadata"].get("metadata_pending"):
+    try:
+        with st.spinner("首次下载远程 MAT 文件并读取变量信息……"):
+            dataset = hydrate_dataset_metadata(dataset["id"])
+    except Exception as exc:
+        st.error(f"无法读取远程 MAT 文件：{exc}")
+        st.stop()
 metadata = dataset["metadata"]
 
 info_columns = st.columns(4)
