@@ -51,6 +51,7 @@ CHANNEL_LABELS_2 = ["电弧发生处", "2m主干"]
 ALL_ANALYSIS_TYPES = {**ANALYSIS_TYPES, **PAIRED_ANALYSIS_TYPES}
 USE_CURRENT_FOLDER = "__USE_CURRENT_FOLDER__"
 FFT_CYCLE_OPTIONS = (1, 5)
+CYCLE_SELECTION_TYPES = {"fft", "arc_features"}
 
 
 @st.cache_data(show_spinner=False, ttl=600)
@@ -141,6 +142,27 @@ def compute_fft_cycle_preview(
         "line",
         pd.concat(tables, ignore_index=True),
         series,
+    )
+
+
+@st.cache_data(show_spinner=False, ttl=600)
+def compute_arc_feature_preview(
+    dataset_id: int,
+    modified_at: str,
+    channel: str,
+    sample_rate: float,
+    starts: tuple[int, ...],
+    cycle_points: int,
+):
+    del modified_at
+    cycles = [
+        load_channel(dataset_id, channel, start, start + cycle_points)[0] for start in starts
+    ]
+    return run_analysis(
+        "arc_features",
+        np.concatenate(cycles),
+        sample_rate,
+        {"cycle_points": cycle_points},
     )
 
 
@@ -777,16 +799,16 @@ else:
         st.stop()
 
     fft_cycle_count = FFT_CYCLE_OPTIONS[-1]
-    if analysis_type == "fft":
+    if analysis_type in CYCLE_SELECTION_TYPES:
         with st.container(border=True):
-            st.markdown("#### FFT 周波数量")
+            st.markdown("#### 周波数量")
             fft_cycle_count = int(
                 st.pills(
                     "选择用于 FFT 计算的周波数量",
                     FFT_CYCLE_OPTIONS,
                     default=FFT_CYCLE_OPTIONS[-1],
                     selection_mode="single",
-                    key=f"fft_cycle_count_{analysis_channel_scope}",
+                    key=f"cycle_count_{analysis_type}_{analysis_channel_scope}",
                 )
                 or FFT_CYCLE_OPTIONS[-1]
             )
@@ -794,7 +816,7 @@ else:
         range_columns = st.columns(3)
         default_length = (
             total_samples
-            if analysis_type in {"waveform", "fft"}
+            if analysis_type in {"waveform", *CYCLE_SELECTION_TYPES}
             else min(
                 total_samples,
                 settings.max_analysis_samples,
@@ -867,16 +889,21 @@ else:
             )
             parameters["level"] = wavelet_columns[1].number_input("分解层数", 1, 8, 5)
 
-    if analysis_type not in {"waveform", "fft"} and end - start > settings.max_analysis_samples:
+    range_is_too_large = (
+        analysis_type not in {"waveform", *CYCLE_SELECTION_TYPES}
+        and end - start > settings.max_analysis_samples
+    )
+    if range_is_too_large:
         st.error(f"单次最多分析 {settings.max_analysis_samples:,} 个采样点，请缩小区间。")
         st.stop()
     selected_fft_starts: list[int] = []
     analysis_points = end - start
     analysis_duration = analysis_points / sample_rate
     with screen_placeholder.container(border=True):
-        if analysis_type == "fft":
+        if analysis_type in CYCLE_SELECTION_TYPES:
             st.markdown(
-                f'<div class="screen-label">选择 {fft_cycle_count} 个周波并计算 FFT</div>',
+                f'<div class="screen-label">选择 {fft_cycle_count} 个周波并进行'
+                f'{definition["label"]}</div>',
                 unsafe_allow_html=True,
             )
             with st.spinner("正在读取波形并识别 50 Hz 周波……"):
@@ -913,7 +940,9 @@ else:
             scope_source = (
                 f"{analysis_channel_scope}|{start}|{end}|{sample_rate:g}|{fft_cycle_count}"
             )
-            selection_scope = f"fft_{hashlib.sha1(scope_source.encode()).hexdigest()[:16]}"
+            selection_scope = (
+                f"{analysis_type}_{hashlib.sha1(scope_source.encode()).hexdigest()[:16]}"
+            )
             selection_key = f"fft_cycles_{selection_scope}"
             picker_key = f"fft_cycle_picker_{selection_scope}"
             if selection_key not in st.session_state:
@@ -976,14 +1005,24 @@ else:
                 st.info(f"请从波形上或精确列表中选满 {fft_cycle_count} 个周波。")
                 st.stop()
             try:
-                with st.spinner(f"正在拼接 {fft_cycle_count} 个周波并计算 FFT 幅值谱……"):
-                    output = compute_fft_cycle_preview(
-                        fft_channel_refs,
-                        sample_rate,
-                        tuple(selected_fft_starts),
-                        context["cycle_points"],
-                        json.dumps(parameters, ensure_ascii=False, sort_keys=True),
-                    )
+                with st.spinner(f"正在处理 {fft_cycle_count} 个周波……"):
+                    if analysis_type == "fft":
+                        output = compute_fft_cycle_preview(
+                            fft_channel_refs,
+                            sample_rate,
+                            tuple(selected_fft_starts),
+                            context["cycle_points"],
+                            json.dumps(parameters, ensure_ascii=False, sort_keys=True),
+                        )
+                    else:
+                        output = compute_arc_feature_preview(
+                            selected_dataset["id"],
+                            selected_dataset["modified_at"],
+                            channel,
+                            sample_rate,
+                            tuple(selected_fft_starts),
+                            context["cycle_points"],
+                        )
             except Exception as exc:
                 st.error(f"无法生成 FFT 幅值谱：{exc}")
                 st.stop()
@@ -1021,7 +1060,9 @@ else:
             )
             metric_columns[1].metric(
                 "分析范围",
-                f"{fft_cycle_count} 周波" if analysis_type == "fft" else f"{analysis_points:,} 点",
+                f"{fft_cycle_count} 周波"
+                if analysis_type in CYCLE_SELECTION_TYPES
+                else f"{analysis_points:,} 点",
             )
             metric_columns[2].metric("采样率", f"{sample_rate:g} Hz")
             metric_columns[3].metric("分析时长", f"{analysis_duration:.6g} s")
@@ -1045,7 +1086,7 @@ else:
         "sample_rate": sample_rate,
         **parameters,
     }
-    if analysis_type == "fft":
+    if analysis_type in CYCLE_SELECTION_TYPES:
         job_parameters.update(
             {
                 "channels": [
@@ -1066,7 +1107,7 @@ else:
         "通道": selected_channel_labels,
         "分析方法": definition["label"],
         "采样区间": [start, end],
-        "选中周波": selected_fft_starts if analysis_type == "fft" else None,
+        "选中周波": selected_fft_starts if analysis_type in CYCLE_SELECTION_TYPES else None,
         "采样率": sample_rate,
         "算法参数": parameters,
     }

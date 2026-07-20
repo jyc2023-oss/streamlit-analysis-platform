@@ -9,6 +9,12 @@ import pandas as pd
 import pywt
 from scipy import signal
 
+from src.analysis.arc_features import (
+    FEATURE_NAMES,
+    ArcFeatureConfig,
+    extract_arc_features,
+)
+
 ALGORITHM_VERSION = "0.1.0"
 
 
@@ -244,6 +250,33 @@ def wavelet_energy(
     )
 
 
+def arc_features(values: np.ndarray, sample_rate: float, params: dict[str, Any]) -> AnalysisOutput:
+    values = _finite(values)
+    cycle_points = int(params.get("cycle_points", round(sample_rate / 50)))
+    half_points = cycle_points // 2
+    if half_points <= 0 or values.size < cycle_points:
+        raise ValueError("至少需要一个完整的50 Hz周波。")
+    half_waves = [
+        values[start : start + half_points]
+        for start in range(0, values.size, half_points)
+        if start + half_points <= values.size
+    ]
+    config = ArcFeatureConfig(sample_rate=sample_rate)
+    matrix = np.vstack([extract_arc_features(item, config) for item in half_waves])
+    averages = matrix.mean(axis=0)
+    table = pd.DataFrame(matrix, columns=FEATURE_NAMES)
+    table.insert(0, "半波", [f"半波 {index + 1}" for index in range(len(table))])
+    return AnalysisOutput(
+        "24维电弧特征（分类模型尚未加载）",
+        np.asarray(FEATURE_NAMES),
+        averages,
+        "特征",
+        "平均特征值",
+        "bar",
+        table,
+    )
+
+
 ANALYSIS_TYPES: dict[str, dict[str, Any]] = {
     "waveform": {
         "label": "原始波形",
@@ -280,6 +313,12 @@ ANALYSIS_TYPES: dict[str, dict[str, Any]] = {
         "icon": "🧩",
         "description": "查看不同小波频带的相对能量。",
         "runner": wavelet_energy,
+    },
+    "arc_features": {
+        "label": "电弧识别",
+        "icon": "⚡",
+        "description": "选择周波并提取24维电弧特征；分类模型暂未加载。",
+        "runner": arc_features,
     },
 }
 

@@ -1,5 +1,6 @@
 import numpy as np
 
+from src.analysis.arc_features import ArcFeatureConfig, extract_arc_features
 from src.analysis.paired import (
     PairedChannelCycles,
     detect_cycle_starts,
@@ -121,3 +122,11 @@ def test_fft_band_power_has_128_bands() -> None:
     assert len(edges) == 129
     assert len(centers) == len(power) == 128
     assert np.all(power >= 0)
+def test_arc_feature_extractor_returns_finite_24_dimensions() -> None:
+    time = np.arange(20_000, dtype=np.float64) / 2_000_000
+    half_wave = np.sin(2 * np.pi * 50 * time) + 0.02 * np.sin(2 * np.pi * 20_000 * time)
+    features = extract_arc_features(half_wave, ArcFeatureConfig(sample_rate=2_000_000))
+    assert features.shape == (24,)
+    assert np.isfinite(features).all()
+    np.testing.assert_allclose(features[10:17].sum(), 1.0, rtol=1e-10)
+    np.testing.assert_allclose(features[17:24].sum(), 1.0, rtol=1e-10)
