@@ -53,6 +53,10 @@ class Settings:
     sftp_cache_ttl_hours: int
     sftp_cache_max_bytes: int
     sftp_allow_unknown_host_key: bool
+    manager_url: str
+    manager_sso_verify_url: str
+    manager_sso_shared_secret: str
+    web_cookie_secure: bool
 
     def create_runtime_dirs(self) -> None:
         for path in (self.app_data_dir, self.result_dir, self.cache_dir, self.temp_dir):
@@ -97,6 +101,11 @@ def get_settings() -> Settings:
         sftp_allow_unknown_host_key=os.getenv("SFTP_ALLOW_UNKNOWN_HOST_KEY", "false")
         .strip()
         .lower()
+        in {"1", "true", "yes"},
+        manager_url=os.getenv("MANAGER_URL", "").strip(),
+        manager_sso_verify_url=os.getenv("MANAGER_SSO_VERIFY_URL", "").strip(),
+        manager_sso_shared_secret=os.getenv("MANAGER_SSO_SHARED_SECRET", ""),
+        web_cookie_secure=os.getenv("WEB_COOKIE_SECURE", "false").strip().lower()
         in {"1", "true", "yes"},
     )
     settings.create_runtime_dirs()

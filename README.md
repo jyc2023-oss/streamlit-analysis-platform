@@ -1,4 +1,29 @@
-# Streamlit 服务器数据分析平台
+# 服务器数据分析平台
+
+项目正在从 Streamlit 页面逐步迁移为与 test-manager 统一的 Vue 3 + FastAPI 架构。现有 Python 解析器、分析算法、模型、数据索引和历史任务继续复用。
+
+## 统一版架构
+
+- 前端：Vue 3、Vite、Ant Design Vue、ECharts
+- 后端：FastAPI、WebSocket
+- 算法：现有 `src/analysis` Python 模块
+- 数据：现有 BIN/MAT 解析、SQLite 索引和 SFTP 数据源
+- 登录：HttpOnly 会话，预留 test-manager 一次性 Ticket SSO
+
+### 本地启动统一版
+
+```powershell
+cd C:\cjy\chongxinkaishi\streamlit-analysis-platform\frontend
+npm install
+npm run build
+
+cd ..
+.\.venv\Scripts\python.exe -m uvicorn src.api.app:app --host 127.0.0.1 --port 8600
+```
+
+访问：`http://127.0.0.1:8600/analysis/`
+
+迁移期间原 Streamlit 版本仍可通过原启动方式运行。
 
 面向内部团队的服务器数据分析平台。用户在浏览器中直接选择 Linux 服务器上的 MAT/BIN 数据，完成波形预览、FFT、带通滤波和小波包能量分析，并下载 PNG、PDF、CSV 结果。
 

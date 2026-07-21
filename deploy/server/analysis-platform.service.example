@@ -1,0 +1,14 @@
+[Unit]
+Description=Unified Vue and FastAPI Analysis Platform
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/Inspur/apps/streamlit-analysis-platform
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/Inspur/.local/bin/micromamba run -n streamlit-analysis python -m uvicorn src.api.app:app --host 192.168.31.201 --port 8600
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

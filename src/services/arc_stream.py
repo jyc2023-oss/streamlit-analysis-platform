@@ -109,6 +109,7 @@ def get_arc_stream_snapshot(task_id: str) -> dict[str, Any]:
             ),
             "channels": channels,
             "error": task.error,
+            "source_dataset_id": task.channel_refs[0][0] if task.channel_refs else None,
         }
 
 
