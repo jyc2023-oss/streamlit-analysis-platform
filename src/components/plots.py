@@ -192,7 +192,11 @@ def build_paired_figure(output: PairedAnalysisOutput, max_points: int = 12_000) 
     return figure
 
 
-def render_analysis_output(output: AnalysisOutput, show_table: bool = True) -> None:
+def render_analysis_output(
+    output: AnalysisOutput,
+    show_table: bool = True,
+    show_figure: bool = True,
+) -> None:
     if output.kind == "arc_detection" and output.summary:
         summary = output.summary
         result = str(summary["folder_result"])
@@ -227,8 +231,9 @@ def render_analysis_output(output: AnalysisOutput, show_table: bool = True) -> N
         )
         metrics[2].metric("有弧半波", f"{summary['arc_halfwaves']} 个")
         metrics[3].metric("完整检测时长", f"{summary['duration_seconds']:.6g} s")
-    figure = build_analysis_figure(output)
-    st.plotly_chart(figure, width="stretch")
+    if show_figure:
+        figure = build_analysis_figure(output)
+        st.plotly_chart(figure, width="stretch")
     if show_table:
         st.dataframe(output.table, width="stretch", hide_index=True)
 

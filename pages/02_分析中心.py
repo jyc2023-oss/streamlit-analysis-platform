@@ -23,10 +23,16 @@ from src.analysis import (
 )
 from src.analysis.selection import normalize_cycle_selection
 from src.auth.ui import require_user
+from src.components.arc_stream import render_arc_stream_workbench
 from src.components.plotly_click import render_cycle_picker
 from src.components.plots import render_analysis_output, render_paired_output
 from src.config import get_settings
 from src.db import init_db
+from src.services.arc_stream import (
+    ensure_arc_stream_task,
+    get_arc_stream_output,
+    get_arc_stream_snapshot,
+)
 from src.services.datasets import (
     dataset_catalog_revision,
     downsample,
@@ -533,6 +539,15 @@ def watch_dataset_catalog() -> None:
 
 
 watch_dataset_catalog()
+
+
+@st.fragment(run_every=0.25)
+def render_running_arc_detection(task_id: str) -> None:
+    """Refresh only the JavaScript workbench while Python detects in the background."""
+    snapshot = get_arc_stream_snapshot(task_id)
+    render_arc_stream_workbench(snapshot, key=f"arc_stream_{task_id}")
+    if snapshot["status"] == "completed":
+        st.rerun(scope="app")
 
 datasets = list_datasets(status="ready")
 if not datasets:
@@ -1201,25 +1216,58 @@ else:
             st.divider()
         else:
             try:
-                with st.spinner(f"正在生成{definition['label']}……"):
-                    if analysis_type == "arc_features":
-                        arc_channel_refs = tuple(
-                            (
-                                dataset["id"],
-                                dataset["modified_at"],
-                                selected_channel,
-                                label,
-                                channel_length(dataset, selected_channel),
-                            )
-                            for label, dataset, selected_channel in channel_selections
+                if analysis_type == "arc_features":
+                    st.markdown(
+                        '<div class="screen-label">动态检测工作台</div>',
+                        unsafe_allow_html=True,
+                    )
+                    arc_channel_refs = tuple(
+                        (
+                            dataset["id"],
+                            dataset["modified_at"],
+                            selected_channel,
+                            label,
+                            channel_length(dataset, selected_channel),
                         )
-                        output = compute_arc_file_preview(
-                            arc_channel_refs,
-                            sample_rate,
-                            json.dumps(parameters, ensure_ascii=False, sort_keys=True),
+                        for label, dataset, selected_channel in channel_selections
+                    )
+                    task_source = json.dumps(
+                        {
+                            "channels": arc_channel_refs,
+                            "sample_rate": sample_rate,
+                            "parameters": parameters,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    arc_task_id = hashlib.sha256(task_source.encode("utf-8")).hexdigest()
+                    ensure_arc_stream_task(
+                        arc_task_id,
+                        arc_channel_refs,
+                        sample_rate,
+                        parameters,
+                    )
+                    arc_snapshot = get_arc_stream_snapshot(arc_task_id)
+                    if arc_snapshot["status"] == "error":
+                        render_arc_stream_workbench(
+                            arc_snapshot,
+                            key=f"arc_stream_{arc_task_id}",
                         )
-                        analysis_duration = float(output.summary["duration_seconds"])
-                    else:
+                        st.error(f"电弧动态检测失败：{arc_snapshot['error']}")
+                        st.stop()
+                    if arc_snapshot["status"] != "completed":
+                        render_running_arc_detection(arc_task_id)
+                        st.stop()
+                    output = get_arc_stream_output(arc_task_id)
+                    if output is None:
+                        raise RuntimeError("后台检测已结束，但完整结果尚未就绪。")
+                    render_arc_stream_workbench(
+                        arc_snapshot,
+                        key=f"arc_stream_{arc_task_id}",
+                    )
+                    analysis_duration = float(output.summary["duration_seconds"])
+                else:
+                    with st.spinner(f"正在生成{definition['label']}……"):
                         output = compute_preview(
                             selected_dataset["id"],
                             selected_dataset["modified_at"],
@@ -1234,8 +1282,13 @@ else:
                 st.error(f"无法生成分析图：{exc}")
                 st.stop()
 
-        st.markdown('<div class="screen-label">分析结果</div>', unsafe_allow_html=True)
-        render_analysis_output(output, show_table=False)
+        if analysis_type != "arc_features":
+            st.markdown('<div class="screen-label">分析结果</div>', unsafe_allow_html=True)
+        render_analysis_output(
+            output,
+            show_table=False,
+            show_figure=analysis_type != "arc_features",
+        )
         with st.container(key="analysis_summary"):
             metric_columns = st.columns(4)
             metric_columns[0].metric(
