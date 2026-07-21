@@ -25,6 +25,7 @@ class _ChannelState:
     probabilities: list[float] = field(default_factory=list)
     features: list[np.ndarray] = field(default_factory=list)
     latest_waveform: list[float] = field(default_factory=list)
+    waveform_previews: list[list[float]] = field(default_factory=list)
 
 
 @dataclass
@@ -92,6 +93,7 @@ def get_arc_stream_snapshot(task_id: str) -> dict[str, Any]:
                 "times": list(channel.times),
                 "probabilities": list(channel.probabilities),
                 "latest_waveform": list(channel.latest_waveform),
+                "waveform_previews": list(channel.waveform_previews),
             }
             for channel in task.channels
         ]
@@ -137,11 +139,14 @@ def _discard_expired_tasks_locked() -> None:
         del _TASKS[task_id]
 
 
-def _preview(values: np.ndarray, maximum: int = 240) -> list[float]:
+def _preview(values: np.ndarray, maximum: int = 96) -> list[float]:
     if values.size <= maximum:
-        return values.astype(float).tolist()
-    indices = np.linspace(0, values.size - 1, maximum, dtype=np.int64)
-    return values[indices].astype(float).tolist()
+        sampled = values
+    else:
+        indices = np.linspace(0, values.size - 1, maximum, dtype=np.int64)
+        sampled = values[indices]
+    # Rounded float32 previews keep fragment payloads small without affecting the model input.
+    return np.round(sampled.astype(np.float32), 5).astype(float).tolist()
 
 
 def _run_task(task: _ArcTask) -> None:
@@ -185,11 +190,13 @@ def _run_task(task: _ArcTask) -> None:
                 feature = extract_arc_features(half_wave, config)
                 probability = float(predict_arc(feature.reshape(1, -1))[0])
                 center_time = (start + half_points / 2) / task.sample_rate
+                waveform_preview = _preview(half_wave)
                 with task.lock:
                     channel.times.append(float(center_time))
                     channel.probabilities.append(probability)
                     channel.features.append(feature)
-                    channel.latest_waveform = _preview(half_wave)
+                    channel.latest_waveform = waveform_preview
+                    channel.waveform_previews.append(waveform_preview)
                     task.processed += 1
 
         output = _build_output(task, channel_states, half_points)

@@ -106,19 +106,23 @@ function drawWaveform(state) {
   if (!canvas) return;
   const {context, width, height} = canvasContext(canvas);
   clear(context, width, height);
-  const channels = state.targetChannels;
-  const available = channels.filter(channel => (channel.latest_waveform ?? []).length > 1);
+  const available = state.targetChannels.map((channel,index) => {
+    const displayed=Math.min(state.displayCounts[index] ?? 0,channel.probabilities.length);
+    const previews=channel.waveform_previews ?? [];
+    return {channel,index,displayed,values:displayed>0?previews[displayed-1]:null};
+  }).filter(item => (item.values ?? []).length > 1);
   if (!available.length) {
     context.fillStyle="#8aa09d"; context.font="13px sans-serif";
     context.fillText("等待 Python 返回第一个半周波……", 18, height / 2); return;
   }
-  const channel = available[state.waveCursor % available.length];
-  const values = channel.latest_waveform;
+  const selected = available[state.waveCursor % available.length];
+  const channel = selected.channel;
+  const values = selected.values;
   let min = Math.min(...values), max = Math.max(...values);
   if (Math.abs(max-min) < 1e-12) {min-=1; max+=1;}
   context.strokeStyle="#dce7e5"; context.lineWidth=1;
   context.beginPath(); context.moveTo(0,height/2); context.lineTo(width,height/2); context.stroke();
-  context.strokeStyle=colors[state.waveCursor % colors.length]; context.lineWidth=1.25;
+  context.strokeStyle=colors[selected.index % colors.length]; context.lineWidth=1.25;
   context.beginPath();
   values.forEach((value,index) => {
     const x=index/(values.length-1)*width;
@@ -127,7 +131,7 @@ function drawWaveform(state) {
   });
   context.stroke();
   const label=state.root.querySelector('[data-role="wave-label"]');
-  if(label) label.textContent=`${channel.label} · ${values.length} 点预览`;
+  if(label) label.textContent=`${channel.label} · 第 ${selected.displayed} 个半周波 · ${values.length} 点预览`;
 }
 
 function drawProbability(state) {
@@ -238,6 +242,7 @@ export default function(component) {
     label:String(channel.label), times:(channel.times||[]).map(Number),
     probabilities:(channel.probabilities||[]).map(Number),
     latest_waveform:(channel.latest_waveform||[]).map(Number),
+    waveform_previews:(channel.waveform_previews||[]).map(values=>values.map(Number)),
   }));
   while(state.displayCounts.length<state.targetChannels.length) state.displayCounts.push(0);
   Object.assign(state,{status:data.status,phase:data.phase,processed:data.processed,total:data.total,

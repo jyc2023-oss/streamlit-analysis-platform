@@ -43,6 +43,8 @@ def test_arc_stream_processes_halfwaves_and_returns_complete_output(monkeypatch)
     assert snapshot["processed"] == snapshot["total"] == 8
     assert len(snapshot["channels"][0]["probabilities"]) == 8
     assert snapshot["channels"][0]["latest_waveform"]
+    assert len(snapshot["channels"][0]["waveform_previews"]) == 8
+    assert all(snapshot["channels"][0]["waveform_previews"])
 
     output = arc_stream.get_arc_stream_output(task_id)
     assert output is not None
