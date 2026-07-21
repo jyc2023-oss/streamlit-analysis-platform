@@ -33,6 +33,7 @@ from src.services.datasets import (
     filter_datasets_by_folder,
     folder_choices,
     hydrate_dataset_metadata,
+    latest_complete_dataset_pair,
     list_datasets,
     load_channel,
     scan_datasets,
@@ -511,7 +512,7 @@ with title_column:
     render_page_intro(
         "电弧识别工作台" if IS_ARC_PAGE else "数据分析工作台",
         (
-            "进入数据文件夹后，自动使用116文件的CH1全量数据逐半波检测并给出文件夹结论。"
+            "实时接入已稳定保存的数据，默认使用116文件CH02全量数据逐半波检测并给出文件夹结论。"
             if IS_ARC_PAGE
             else "选择算法、数据文件与通道，中央画布会同步更新，并可保存图像、数据和完整分析记录。"
         ),
@@ -563,25 +564,53 @@ with left_panel:
 with right_panel:
     with st.container(border=True):
         st.markdown("#### 分析文件")
-        st.caption("请按目录层级逐级进入，系统会在 114/116 分开前停在共同文件夹。")
-        selected_folder = choose_dataset_folder(datasets, "workbench_folder")
-        scoped_datasets = filter_datasets_by_folder(datasets, selected_folder)
-        eight_channel_files = [
-            item for item in scoped_datasets if item["metadata"].get("channels_count") == 8
-        ]
-        two_channel_files = [
-            item for item in scoped_datasets if item["metadata"].get("channels_count") == 2
-        ]
-        other_files = [
-            item for item in scoped_datasets if item["metadata"].get("channels_count") not in {2, 8}
-        ]
-        selected_8 = choose_dataset("8 通道文件", eight_channel_files, "workbench_file_8")
-        selected_2 = choose_dataset("2 通道文件", two_channel_files, "workbench_file_2")
-        selected_other = None
-        if other_files:
-            with st.expander("其他通道文件"):
-                selected_other = choose_dataset("补充文件", other_files, "workbench_file_other")
-        st.caption("已开启新文件自动发现；SFTP 文件仅在首次分析时进入临时缓存。")
+        stream_mode = IS_ARC_PAGE and st.toggle(
+            "实时流式检测",
+            value=True,
+            key="arc_stream_mode",
+            help="自动等待最新一组114/116文件保存完成，然后检测116文件CH02。",
+        )
+        if stream_mode:
+            pair = latest_complete_dataset_pair(datasets)
+            selected_other = None
+            if pair is None:
+                selected_folder = ()
+                selected_8 = selected_2 = None
+                st.markdown("🟠 **正在等待完整数据组**")
+                st.caption("检测到同时包含114和116、且已稳定保存的数据后会自动开始分析。")
+            else:
+                selected_folder, selected_8, selected_2 = pair
+                breadcrumb = " / ".join(part.strip() for part in selected_folder)
+                st.markdown("🟢 **实时监听中**")
+                st.caption("数据接入 → 保存稳定性确认 → 文件索引 → CH02检测 → 输出结论")
+                st.caption(f"当前最新数据：{breadcrumb or '数据根目录'}")
+                st.markdown(f"**116：** {html.escape(selected_2['name'])}")
+                st.markdown(f"**114：** {html.escape(selected_8['name'])}")
+        else:
+            st.caption("请按目录层级逐级进入，系统会在 114/116 分开前停在共同文件夹。")
+            selected_folder = choose_dataset_folder(datasets, "workbench_folder")
+            scoped_datasets = filter_datasets_by_folder(datasets, selected_folder)
+            eight_channel_files = [
+                item for item in scoped_datasets if item["metadata"].get("channels_count") == 8
+            ]
+            two_channel_files = [
+                item for item in scoped_datasets if item["metadata"].get("channels_count") == 2
+            ]
+            other_files = [
+                item
+                for item in scoped_datasets
+                if item["metadata"].get("channels_count") not in {2, 8}
+            ]
+            selected_8 = choose_dataset("8 通道文件", eight_channel_files, "workbench_file_8")
+            selected_2 = choose_dataset("2 通道文件", two_channel_files, "workbench_file_2")
+            selected_other = None
+            if other_files:
+                with st.expander("其他通道文件"):
+                    selected_other = choose_dataset("补充文件", other_files, "workbench_file_other")
+        st.caption(
+            "新文件自动发现已开启；本地文件需保持大小和修改时间稳定，"
+            "SFTP文件需连续两次扫描保持不变后才会进入检测。"
+        )
         if st.button("刷新文件列表", width="stretch"):
             with st.spinner("正在刷新索引……"):
                 scan_datasets(user["id"])
@@ -591,6 +620,12 @@ with right_panel:
 
 with screen_panel:
     screen_placeholder = st.empty()
+
+if stream_mode and (not selected_8 or not selected_2):
+    with screen_placeholder.container(border=True):
+        st.markdown("#### 流式检测等待中")
+        st.info("尚未发现一组已经完整保存的114/116数据。页面会持续监听，无需手动刷新。")
+    st.stop()
 
 for pending_dataset in (selected_8, selected_2, selected_other):
     if pending_dataset and pending_dataset["metadata"].get("metadata_pending"):

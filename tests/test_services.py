@@ -4,6 +4,7 @@ from src.services.datasets import (
     downsample,
     filter_datasets_by_folder,
     folder_choices,
+    latest_complete_dataset_pair,
 )
 
 
@@ -51,3 +52,35 @@ def test_folder_choices_stop_before_channel_folders_split() -> None:
 
     scoped = filter_datasets_by_folder(datasets, ("2026-07-01", "实验A", "FTP"))
     assert len(scoped) == 2
+
+
+def test_latest_complete_dataset_pair_prefers_newest_ready_folder() -> None:
+    def item(path: str, channels: int, modified_at: str, status: str = "ready") -> dict:
+        return {
+            "relative_path": path,
+            "name": path.rsplit("/", 1)[-1],
+            "modified_at": modified_at,
+            "status": status,
+            "metadata": {"channels_count": channels},
+        }
+
+    datasets = [
+        item("2026-07-20/A/NET9770_114/a.bin", 8, "2026-07-20T09:00:00+00:00"),
+        item("2026-07-20/A/NET9770_116/b.bin", 2, "2026-07-20T09:00:01+00:00"),
+        item("2026-07-21/B/NET9770_114/c.bin", 8, "2026-07-21T09:00:00+00:00"),
+        item("2026-07-21/B/NET9770_116/d.bin", 2, "2026-07-21T09:00:01+00:00"),
+        item(
+            "2026-07-22/C/NET9770_116/e.bin",
+            2,
+            "2026-07-22T09:00:00+00:00",
+            status="pending",
+        ),
+    ]
+
+    pair = latest_complete_dataset_pair(datasets)
+
+    assert pair is not None
+    scope, selected_8, selected_2 = pair
+    assert scope == ("2026-07-21", "B")
+    assert selected_8["name"] == "c.bin"
+    assert selected_2["name"] == "d.bin"

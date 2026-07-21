@@ -77,7 +77,16 @@ def index_dataset(
               indexed_at=excluded.indexed_at,
               status=excluded.status,
               error_message=excluded.error_message,
-              metadata_json=excluded.metadata_json"""
+              metadata_json=excluded.metadata_json
+            WHERE datasets.root_path IS NOT excluded.root_path
+               OR datasets.relative_path IS NOT excluded.relative_path
+               OR datasets.name IS NOT excluded.name
+               OR datasets.extension IS NOT excluded.extension
+               OR datasets.size_bytes IS NOT excluded.size_bytes
+               OR datasets.modified_at IS NOT excluded.modified_at
+               OR datasets.status IS NOT excluded.status
+               OR datasets.error_message IS NOT excluded.error_message
+               OR datasets.metadata_json IS NOT excluded.metadata_json"""
     values = (
         str(resolved),
         str(root),
@@ -150,6 +159,7 @@ def sync_remote_datasets() -> dict[str, int]:
             "modified_at": row["modified_at"],
             "metadata": json.loads(row["metadata_json"] or "{}"),
             "error_message": row["error_message"],
+            "status": row["status"],
         }
         for row in existing_rows
     }
@@ -180,7 +190,13 @@ def sync_remote_datasets() -> dict[str, int]:
             THEN datasets.metadata_json ELSE excluded.metadata_json END"""
     with transaction() as connection:
         for entry in entries:
-            status = "error" if entry.error_message else "ready"
+            known = known_entries.get(entry.uri)
+            unchanged = (
+                known is not None
+                and int(known["size_bytes"]) == entry.size_bytes
+                and str(known["modified_at"]) == entry.modified_at
+            )
+            status = "error" if entry.error_message else ("ready" if unchanged else "pending")
             connection.execute(
                 statement,
                 (
@@ -202,8 +218,9 @@ def sync_remote_datasets() -> dict[str, int]:
         ).fetchall()
         missing = [row["path"] for row in rows if row["path"] not in seen_uris]
         connection.executemany(
-            "UPDATE datasets SET status='missing', error_message='远程文件已不存在。' WHERE path=?",
-            ((path,) for path in missing),
+            """UPDATE datasets SET status='missing', error_message='远程文件已不存在。',
+            indexed_at=? WHERE path=? AND status!='missing'""",
+            ((indexed_at, path) for path in missing),
         )
     failed = sum(entry.error_message is not None for entry in entries)
     return {"seen": len(entries), "ready": len(entries) - failed, "failed": failed}
@@ -335,6 +352,41 @@ def folder_choices(
         if required_channel_counts.issubset(counts):
             eligible.append(child)
     return eligible
+
+
+def _dataset_pair_scope(dataset: dict[str, Any]) -> tuple[str, ...]:
+    """Return the common acquisition folder above optional 114/116 subfolders."""
+    parent = dataset_path_parts(dataset)[:-1]
+    if parent and any(number in parent[-1].casefold() for number in ("114", "116")):
+        return parent[:-1]
+    return parent
+
+
+def latest_complete_dataset_pair(
+    datasets: list[dict[str, Any]],
+) -> tuple[tuple[str, ...], dict[str, Any], dict[str, Any]] | None:
+    """Return the newest ready acquisition containing both an 114 and 116 file."""
+    grouped: dict[tuple[str, ...], dict[int, list[dict[str, Any]]]] = {}
+    for dataset in datasets:
+        if dataset.get("status", "ready") != "ready":
+            continue
+        channels = int(dataset.get("metadata", {}).get("channels_count", 0))
+        if channels not in {2, 8}:
+            continue
+        grouped.setdefault(_dataset_pair_scope(dataset), {8: [], 2: []})[channels].append(dataset)
+
+    candidates = []
+    for scope, channel_groups in grouped.items():
+        if not channel_groups[8] or not channel_groups[2]:
+            continue
+        selected_8 = max(channel_groups[8], key=lambda item: str(item["modified_at"]))
+        selected_2 = max(channel_groups[2], key=lambda item: str(item["modified_at"]))
+        completed_at = min(str(selected_8["modified_at"]), str(selected_2["modified_at"]))
+        candidates.append((completed_at, scope, selected_8, selected_2))
+    if not candidates:
+        return None
+    _completed_at, scope, selected_8, selected_2 = max(candidates, key=lambda item: item[0])
+    return scope, selected_8, selected_2
 
 
 def dataset_counts() -> dict[str, int]:
